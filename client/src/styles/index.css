@@ -10,7 +10,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -159,7 +160,8 @@ a {
 
 .toolbar input,
 .toolbar select,
-.modal input {
+.modal input,
+.modal select {
   min-height: 38px;
   padding: 8px 10px;
   border: 1px solid #b9c7bf;

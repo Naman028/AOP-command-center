@@ -6,6 +6,7 @@ import { RequireAuth } from "../guards/RequireAuth.jsx";
 import { RequirePermission } from "../guards/RequirePermission.jsx";
 import { DashboardPage } from "../pages/dashboard/DashboardPage.jsx";
 import { MasterDataPage } from "../pages/masterData/MasterDataPage.jsx";
+import { TargetPlanningPage } from "../pages/planning/TargetPlanningPage.jsx";
 import { SimplePage } from "../pages/SimplePage.jsx";
 import { LoginPage } from "../pages/public/LoginPage.jsx";
 import { NotFoundPage } from "../pages/public/NotFoundPage.jsx";
@@ -33,7 +34,11 @@ export function App() {
               <Route path="/master-data/plants" element={<RequirePermission permission="MASTER_DATA_VIEW"><MasterDataPage type="plants" /></RequirePermission>} />
               <Route path="/master-data/materials" element={<RequirePermission permission="MASTER_DATA_VIEW"><MasterDataPage type="materials" /></RequirePermission>} />
               <Route path="/master-data/financial-years" element={<RequirePermission permission="MASTER_DATA_VIEW"><MasterDataPage type="financialYears" /></RequirePermission>} />
-              <Route path="/planning" element={<RequirePermission permission="TARGETS_VIEW"><SimplePage title="Planning" /></RequirePermission>} />
+              <Route path="/planning" element={<Navigate to="/planning/turnover" replace />} />
+              <Route path="/planning/turnover" element={<RequirePermission permission="TARGETS_VIEW"><TargetPlanningPage metricType="TURNOVER" /></RequirePermission>} />
+              <Route path="/planning/expenses" element={<RequirePermission permission="TARGETS_VIEW"><TargetPlanningPage metricType="EXPENSE" /></RequirePermission>} />
+              <Route path="/planning/consumption" element={<RequirePermission permission="TARGETS_VIEW"><TargetPlanningPage metricType="CONSUMPTION" /></RequirePermission>} />
+              <Route path="/planning/earnings" element={<RequirePermission permission="TARGETS_VIEW"><TargetPlanningPage metricType="EARNINGS" /></RequirePermission>} />
               <Route path="/actuals/file-drop" element={<RequirePermission permission="IMPORTS_MANAGE"><SimplePage title="File Drop" /></RequirePermission>} />
               <Route path="/reports" element={<RequirePermission permission="REPORTS_VIEW"><SimplePage title="Reports" /></RequirePermission>} />
               <Route path="/admin/users" element={<RequirePermission permission="USERS_MANAGE"><SimplePage title="Users" /></RequirePermission>} />

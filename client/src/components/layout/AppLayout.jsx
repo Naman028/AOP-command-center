@@ -14,7 +14,10 @@ export function AppLayout() {
           {can("MASTER_DATA_VIEW") && <Link to="/master-data/plants">Plants</Link>}
           {can("MASTER_DATA_VIEW") && <Link to="/master-data/materials">Materials</Link>}
           {can("MASTER_DATA_VIEW") && <Link to="/master-data/financial-years">Financial Years</Link>}
-          {can("TARGETS_VIEW") && <Link to="/planning">Planning</Link>}
+          {can("TARGETS_VIEW") && <Link to="/planning/turnover">Turnover</Link>}
+          {can("TARGETS_VIEW") && <Link to="/planning/expenses">Expenses</Link>}
+          {can("TARGETS_VIEW") && <Link to="/planning/consumption">Consumption</Link>}
+          {can("TARGETS_VIEW") && <Link to="/planning/earnings">Earnings</Link>}
           {can("IMPORTS_MANAGE") && <Link to="/actuals/file-drop">File Drop</Link>}
           {can("REPORTS_VIEW") && <Link to="/reports">Reports</Link>}
           {can("USERS_MANAGE") && <Link to="/admin/users">Users</Link>}

@@ -87,7 +87,7 @@ export function createPlantRouter({ store, sessionService, auditService }) {
         throw new HttpError(404, "Plant not found", "PLANT_NOT_FOUND");
       }
       const plant = toApiRecord(existing);
-      const referenced = store.targets.some((target) => target.plantId === plant.code) || store.actuals.some((actual) => actual.plantId === plant.code) || store.importBatches.some((batch) => batch.plantIds?.includes(plant.code));
+      const referenced = store.targets.some((target) => target.plant?.code === plant.code || target.plantId === plant.code) || store.actuals.some((actual) => actual.plantId === plant.code) || store.importBatches.some((batch) => batch.plantIds?.includes(plant.code));
       if (referenced) {
         throw new HttpError(409, "Plant is referenced by operational data", "MASTER_DATA_REFERENCED");
       }
@@ -97,7 +97,7 @@ export function createPlantRouter({ store, sessionService, auditService }) {
       return;
     }
     const plant = findPlant(store, req.params.id);
-    const referenced = store.targets.some((target) => target.plantId === plant.code) || store.actuals.some((actual) => actual.plantId === plant.code) || store.importBatches.some((batch) => batch.plantIds?.includes(plant.code));
+    const referenced = store.targets.some((target) => target.plant?.code === plant.code || target.plantId === plant.code) || store.actuals.some((actual) => actual.plantId === plant.code) || store.importBatches.some((batch) => batch.plantIds?.includes(plant.code));
     if (referenced) {
       throw new HttpError(409, "Plant is referenced by operational data", "MASTER_DATA_REFERENCED");
     }

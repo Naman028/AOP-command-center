@@ -4,9 +4,9 @@ Secure MERN command center for planning, actuals, imports, reports, and plant-sc
 
 ## Phase Status
 
-Current step: Phase 2 - master data management implemented.
+Current step: Phase 3 - target planning implemented.
 
-The security foundation, role permissions, plant-scope checks, audit logging, and acceptance tests are in place. Phase 2 adds Plants, Materials, and Financial Years master data.
+The security foundation, MongoDB persistence gate, master data, and target planning for Turnover, Expenses, Consumption, and Earnings are in place.
 
 ## Architecture
 

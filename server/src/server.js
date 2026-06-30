@@ -5,6 +5,7 @@ import { loadConfig } from "./config/env.js";
 import { FinancialYear } from "./models/FinancialYear.js";
 import { Material } from "./models/Material.js";
 import { Plant } from "./models/Plant.js";
+import { Target } from "./models/Target.js";
 
 const config = loadConfig();
 
@@ -12,7 +13,8 @@ export async function syncMasterDataIndexes() {
   await Promise.all([
     Plant.syncIndexes(),
     Material.syncIndexes(),
-    FinancialYear.syncIndexes()
+    FinancialYear.syncIndexes(),
+    Target.syncIndexes()
   ]);
 }
 

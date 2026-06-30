@@ -107,7 +107,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
         throw new HttpError(404, "Financial year not found", "FINANCIAL_YEAR_NOT_FOUND");
       }
       const financialYear = toApiRecord(existing);
-      const referenced = store.targets.some((target) => target.financialYear === financialYear.label) || store.actuals.some((actual) => actual.financialYear === financialYear.label);
+      const referenced = store.targets.some((target) => target.financialYear?.label === financialYear.label || target.financialYear === financialYear.label) || store.actuals.some((actual) => actual.financialYear === financialYear.label);
       if (referenced) {
         throw new HttpError(409, "Financial year is referenced by operational data", "MASTER_DATA_REFERENCED");
       }
@@ -117,7 +117,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
       return;
     }
     const financialYear = findFinancialYear(store, req.params.id);
-    const referenced = store.targets.some((target) => target.financialYear === financialYear.label) || store.actuals.some((actual) => actual.financialYear === financialYear.label);
+    const referenced = store.targets.some((target) => target.financialYear?.label === financialYear.label || target.financialYear === financialYear.label) || store.actuals.some((actual) => actual.financialYear === financialYear.label);
     if (referenced) {
       throw new HttpError(409, "Financial year is referenced by operational data", "MASTER_DATA_REFERENCED");
     }

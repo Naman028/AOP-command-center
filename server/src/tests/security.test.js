@@ -28,6 +28,20 @@ async function login(application, email) {
   return { cookies, csrf: decodeURIComponent(csrf), body: response.body };
 }
 
+function targetPayload(overrides = {}) {
+  return {
+    plant: "100000000000000000000001",
+    financialYear: "300000000000000000000001",
+    month: 2,
+    metricType: "EXPENSE",
+    category: "TOTAL",
+    plannedValue: 10,
+    unit: "USD",
+    notes: "",
+    ...overrides
+  };
+}
+
 describe("security architecture", () => {
   it("fails closed in production when MongoDB is unavailable", async () => {
     const listen = vi.fn();
@@ -192,7 +206,7 @@ describe("security architecture", () => {
 
     const report = await request(application).get("/api/reports/summary").set("Cookie", lead.cookies);
     expect(report.status).toBe(200);
-    expect(report.body.rows.every((row) => row.plantId === "PLANT-A")).toBe(true);
+    expect(report.body.rows.every((row) => row.plant.code === "PLANT-A")).toBe(true);
     expect(report.body.actuals.every((row) => row.plantId === "PLANT-A")).toBe(true);
 
     const plantBReport = await request(application)
@@ -207,10 +221,10 @@ describe("security architecture", () => {
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", lead.csrf)
       .set("Cookie", lead.cookies)
-      .send({ plantId: "PLANT-B", financialYear: "2027", metricType: "output", value: 50 });
+      .send(targetPayload({ plant: "100000000000000000000002" }));
     expect(forbiddenPlant.status).toBe(403);
 
-    const otherPlantTarget = application.locals.store.targets.find((target) => target.plantId === "PLANT-B");
+    const otherPlantTarget = application.locals.store.targets.find((target) => target.plant.code === "PLANT-B");
     const guessedRead = await request(application)
       .get(`/api/targets/${otherPlantTarget.id}`)
       .set("Cookie", lead.cookies);
@@ -221,16 +235,17 @@ describe("security architecture", () => {
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", lead.csrf)
       .set("Cookie", lead.cookies)
-      .send({ plantId: "PLANT-B", financialYear: "2026", metricType: "output", value: 999 });
+      .send(targetPayload({ plant: "100000000000000000000002", plannedValue: 999 }));
     expect(guessedEdit.status).toBe(403);
-    expect(application.locals.store.targets.find((target) => target.id === otherPlantTarget.id).value).toBe(200);
+    expect(application.locals.store.targets.find((target) => target.id === otherPlantTarget.id).plannedValue).toBe(200);
 
-    const guessedDelete = await request(application)
-      .delete(`/api/targets/${otherPlantTarget.id}`)
+    const guessedStatus = await request(application)
+      .patch(`/api/targets/${otherPlantTarget.id}/status`)
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", lead.csrf)
-      .set("Cookie", lead.cookies);
-    expect(guessedDelete.status).toBe(403);
+      .set("Cookie", lead.cookies)
+      .send({ isActive: false });
+    expect(guessedStatus.status).toBe(403);
     expect(application.locals.store.targets.some((target) => target.id === otherPlantTarget.id)).toBe(true);
 
     const otherPlantActual = application.locals.store.actuals.find((actual) => actual.plantId === "PLANT-B");
@@ -251,7 +266,7 @@ describe("security architecture", () => {
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", lead.csrf)
       .set("Cookie", lead.cookies)
-      .send({ plantId: { $ne: "PLANT-A" }, financialYear: "2027", metricType: "output", value: 50 });
+      .send(targetPayload({ plant: { $ne: "100000000000000000000001" } }));
     expect(unsafe.status).toBe(400);
   });
 
@@ -370,7 +385,12 @@ describe("security architecture", () => {
 
   it("escapes formula-like values in exports and audits authorization failures", async () => {
     const application = app();
-    application.locals.store.targets.push({ id: "formula", plantId: "PLANT-A", financialYear: "2026", metricType: "output", value: "=SUM(1,1)" });
+    application.locals.store.targets.push({
+      ...application.locals.store.targets[0],
+      id: "400000000000000000000099",
+      category: "FORMULA",
+      plannedValue: "=SUM(1,1)"
+    });
     const manager = await login(application, "manager@aop.local");
     const exportResponse = await request(application).get("/api/reports/export").set("Cookie", manager.cookies);
     expect(exportResponse.text).toContain("'=SUM(1,1)");
@@ -387,7 +407,7 @@ describe("security architecture", () => {
   it("blocks duplicate target and actual insertion and rejects invalid API input safely", async () => {
     const application = app();
     const manager = await login(application, "manager@aop.local");
-    const payload = { plantId: "PLANT-A", financialYear: "2026", metricType: "cost", value: 10 };
+    const payload = targetPayload({ month: 3, metricType: "EXPENSE", plannedValue: 10 });
     const [first, second] = await Promise.all([
       request(application)
         .post("/api/targets")
@@ -427,7 +447,7 @@ describe("security architecture", () => {
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", manager.csrf)
       .set("Cookie", manager.cookies)
-      .send({ plantId: "PLANT-A", financialYear: "bad", metricType: "output", value: 10 });
+      .send(targetPayload({ financialYear: "bad" }));
     expect(invalid.status).toBe(400);
 
     const unexpectedField = await request(application)
@@ -435,8 +455,24 @@ describe("security architecture", () => {
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", manager.csrf)
       .set("Cookie", manager.cookies)
-      .send({ plantId: "PLANT-A", financialYear: "2032", metricType: "output", value: 10, role: "ADMIN" });
+      .send(targetPayload({ role: "ADMIN" }));
     expect(unexpectedField.status).toBe(400);
+
+    const invalidMonth = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(targetPayload({ month: 13 }));
+    expect(invalidMonth.status).toBe(400);
+
+    const invalidValue = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(targetPayload({ plannedValue: -1 }));
+    expect(invalidValue.status).toBe(400);
 
     const invalidSort = await request(application)
       .get("/api/reports/summary?sort=passwordHash")
@@ -447,6 +483,16 @@ describe("security architecture", () => {
       .get("/api/reports/summary?page=0&limit=1000")
       .set("Cookie", manager.cookies);
     expect(invalidPagination.status).toBe(400);
+
+    const invalidTargetSort = await request(application)
+      .get("/api/targets?sort=passwordHash")
+      .set("Cookie", manager.cookies);
+    expect(invalidTargetSort.status).toBe(400);
+
+    const unsafeTargetFilter = await request(application)
+      .get("/api/targets?plant[$ne]=100000000000000000000001")
+      .set("Cookie", manager.cookies);
+    expect(unsafeTargetFilter.status).toBe(400);
 
     const admin = await login(application, "admin@aop.local");
     const invalidObjectId = await request(application)
@@ -462,6 +508,104 @@ describe("security architecture", () => {
     expect(body).not.toContain("mongodb");
     expect(body).not.toContain("accessToken");
     expect(body).not.toContain("Password123!");
+  });
+
+  it("supports Phase 3 target planning authorization, material rules, and status lifecycle", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+    const manager = await login(application, "manager@aop.local");
+    const lead = await login(application, "lead-a@aop.local");
+    const staff = await login(application, "staff@aop.local");
+
+    const staffList = await request(application).get("/api/targets").set("Cookie", staff.cookies);
+    expect(staffList.status).toBe(403);
+
+    const adminCreate = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send(targetPayload({ month: 4, metricType: "TURNOVER", plannedValue: 20 }));
+    expect(adminCreate.status).toBe(201);
+
+    const managerEdit = await request(application)
+      .patch(`/api/targets/${adminCreate.body.target.id}`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(targetPayload({ month: 4, metricType: "TURNOVER", plannedValue: 25 }));
+    expect(managerEdit.status).toBe(200);
+    expect(managerEdit.body.target.plannedValue).toBe(25);
+
+    const leadCreate = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", lead.csrf)
+      .set("Cookie", lead.cookies)
+      .send(targetPayload({ month: 5, metricType: "EARNINGS", plannedValue: 30 }));
+    expect(leadCreate.status).toBe(201);
+
+    const missingConsumptionMaterial = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(targetPayload({ month: 6, metricType: "CONSUMPTION", material: null }));
+    expect(missingConsumptionMaterial.status).toBe(400);
+
+    const materialOnTurnover = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(targetPayload({ month: 6, metricType: "TURNOVER", material: "200000000000000000000001" }));
+    expect(materialOnTurnover.status).toBe(400);
+
+    const inactiveMaterial = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(targetPayload({ month: 6, metricType: "CONSUMPTION", material: "200000000000000000000002", unit: "EA" }));
+    expect(inactiveMaterial.status).toBe(400);
+
+    const consumption = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(targetPayload({ month: 6, metricType: "CONSUMPTION", material: "200000000000000000000001", unit: "EA" }));
+    expect(consumption.status).toBe(201);
+
+    const deactivated = await request(application)
+      .patch(`/api/targets/${consumption.body.target.id}/status`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({ isActive: false });
+    expect(deactivated.status).toBe(200);
+    expect(deactivated.body.target.isActive).toBe(false);
+
+    const historical = await request(application)
+      .get(`/api/targets/${consumption.body.target.id}`)
+      .set("Cookie", manager.cookies);
+    expect(historical.status).toBe(200);
+    expect(historical.body.target.plannedValue).toBe(consumption.body.target.plannedValue);
+
+    const reactivated = await request(application)
+      .patch(`/api/targets/${consumption.body.target.id}/status`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({ isActive: true });
+    expect(reactivated.status).toBe(200);
+    expect(reactivated.body.target.isActive).toBe(true);
+
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "CREATE_TARGET")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "UPDATE_TARGET")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "DEACTIVATE_TARGET")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "REACTIVATE_TARGET")).toBe(true);
+    expect(JSON.stringify(application.locals.store.auditLogs)).not.toContain("Password123!");
   });
 
   it("supports admin master-data management and read-only access for other roles", async () => {
@@ -589,7 +733,7 @@ describe("security architecture", () => {
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", manager.csrf)
       .set("Cookie", manager.cookies)
-      .send({ plantId: "PLANT-Z", financialYear: "2026", metricType: "cost", value: 100 });
+      .send(targetPayload({ plant: "100000000000000000000003" }));
     expect(inactivePlantWrite.status).toBe(400);
 
     const inactiveYearWrite = await request(application)

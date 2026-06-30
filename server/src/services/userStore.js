@@ -72,8 +72,40 @@ export function createSeedStore(workFactor = 12) {
       { id: "300000000000000000000002", label: "2025", startDate: "2025-01-01", endDate: "2025-12-31", isActive: false, createdBy: adminId, updatedBy: adminId, createdAt: now, updatedAt: now }
     ],
     targets: [
-      { id: uuidv4(), plantId: "PLANT-A", financialYear: "2026", metricType: "output", value: 100 },
-      { id: uuidv4(), plantId: "PLANT-B", financialYear: "2026", metricType: "output", value: 200 }
+      {
+        id: "400000000000000000000001",
+        plant: { id: "100000000000000000000001", name: "Plant A", code: "PLANT-A", location: "North Campus", businessUnit: "Operations", isActive: true },
+        financialYear: { id: "300000000000000000000001", label: "2026", startDate: "2026-01-01", endDate: "2026-12-31", isActive: true },
+        month: 1,
+        metricType: "TURNOVER",
+        category: "TOTAL",
+        material: null,
+        plannedValue: 100,
+        unit: "USD",
+        notes: "",
+        isActive: true,
+        createdBy: adminId,
+        updatedBy: adminId,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: "400000000000000000000002",
+        plant: { id: "100000000000000000000002", name: "Plant B", code: "PLANT-B", location: "South Campus", businessUnit: "Operations", isActive: true },
+        financialYear: { id: "300000000000000000000001", label: "2026", startDate: "2026-01-01", endDate: "2026-12-31", isActive: true },
+        month: 1,
+        metricType: "TURNOVER",
+        category: "TOTAL",
+        material: null,
+        plannedValue: 200,
+        unit: "USD",
+        notes: "",
+        isActive: true,
+        createdBy: adminId,
+        updatedBy: adminId,
+        createdAt: now,
+        updatedAt: now
+      }
     ],
     actuals: [
       { id: uuidv4(), plantId: "PLANT-A", financialYear: "2026", metricType: "output", period: "2026-01", value: 90 },

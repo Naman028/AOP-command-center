@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>AOP Command Center</title>
+  <rect width="64" height="64" rx="12" fill="#111827"/>
+  <path d="M16 42h32v6H16zM18 34h8v6h-8zM28 26h8v14h-8zM38 18h8v22h-8z" fill="#22c55e"/>
+  <path d="M16 16h32v4H16z" fill="#e5e7eb"/>
+</svg>
+

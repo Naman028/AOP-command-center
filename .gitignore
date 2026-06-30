@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# build output
+dist/
+build/
+coverage/
+
+# logs
+*.log
+npm-debug.log*
+
+# local uploads and generated files
+server/storage/temporary-uploads/*
+!server/storage/temporary-uploads/.gitkeep
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+

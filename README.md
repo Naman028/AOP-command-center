@@ -4,9 +4,9 @@ Secure MERN command center for planning, actuals, imports, reports, and plant-sc
 
 ## Phase Status
 
-Current step: Phase 3.1 - persistent audit logs implemented.
+Current step: Phase 4 - manual actual data entry implemented.
 
-The security foundation, MongoDB persistence gate, master data, target planning, and persistent audit logs are in place.
+The security foundation, MongoDB persistence gate, master data, target planning, persistent audit logs, and manual actual data entry are in place.
 
 ## Architecture
 

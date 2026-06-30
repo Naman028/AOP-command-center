@@ -1,5 +1,4 @@
 import bcrypt from "bcryptjs";
-import { v4 as uuidv4 } from "uuid";
 import { ROLES } from "../constants/permissions.js";
 
 export function createSeedStore(workFactor = 12) {
@@ -108,8 +107,42 @@ export function createSeedStore(workFactor = 12) {
       }
     ],
     actuals: [
-      { id: uuidv4(), plantId: "PLANT-A", financialYear: "2026", metricType: "output", period: "2026-01", value: 90 },
-      { id: uuidv4(), plantId: "PLANT-B", financialYear: "2026", metricType: "output", period: "2026-01", value: 180 }
+      {
+        id: "500000000000000000000001",
+        plant: { id: "100000000000000000000001", name: "Plant A", code: "PLANT-A", location: "North Campus", businessUnit: "Operations", isActive: true },
+        financialYear: { id: "300000000000000000000001", label: "2026", startDate: "2026-01-01", endDate: "2026-12-31", isActive: true },
+        month: 1,
+        metricType: "TURNOVER",
+        category: "TOTAL",
+        material: null,
+        actualValue: 90,
+        unit: "USD",
+        source: "MANUAL",
+        notes: "",
+        isActive: true,
+        createdBy: adminId,
+        updatedBy: adminId,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: "500000000000000000000002",
+        plant: { id: "100000000000000000000002", name: "Plant B", code: "PLANT-B", location: "South Campus", businessUnit: "Operations", isActive: true },
+        financialYear: { id: "300000000000000000000001", label: "2026", startDate: "2026-01-01", endDate: "2026-12-31", isActive: true },
+        month: 1,
+        metricType: "TURNOVER",
+        category: "TOTAL",
+        material: null,
+        actualValue: 180,
+        unit: "USD",
+        source: "MANUAL",
+        notes: "",
+        isActive: true,
+        createdBy: adminId,
+        updatedBy: adminId,
+        createdAt: now,
+        updatedAt: now
+      }
     ],
     importBatches: []
   };

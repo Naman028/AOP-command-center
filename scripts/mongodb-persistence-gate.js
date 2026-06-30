@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import request from "supertest";
 import { createApp } from "../server/src/app.js";
 import { loadConfig } from "../server/src/config/env.js";
+import { Actual } from "../server/src/models/Actual.js";
 import { AuditLog } from "../server/src/models/AuditLog.js";
 import { FinancialYear } from "../server/src/models/FinancialYear.js";
 import { Material } from "../server/src/models/Material.js";
@@ -61,11 +62,12 @@ async function closeGateApp(server) {
 }
 
 async function verifyIndexes() {
-  const [plantIndexes, materialIndexes, financialYearIndexes, targetIndexes, auditIndexes] = await Promise.all([
+  const [plantIndexes, materialIndexes, financialYearIndexes, targetIndexes, actualIndexes, auditIndexes] = await Promise.all([
     Plant.collection.indexes(),
     Material.collection.indexes(),
     FinancialYear.collection.indexes(),
     Target.collection.indexes(),
+    Actual.collection.indexes(),
     AuditLog.collection.indexes()
   ]);
 
@@ -74,6 +76,7 @@ async function verifyIndexes() {
   assert.ok(financialYearIndexes.some((index) => index.key.label === 1 && index.unique), "FinancialYear label unique index missing");
   assert.ok(financialYearIndexes.some((index) => index.key.isActive === 1 && index.unique && index.partialFilterExpression?.isActive === true), "FinancialYear active partial unique index missing");
   assert.ok(targetIndexes.some((index) => index.key.plant === 1 && index.key.financialYear === 1 && index.key.month === 1 && index.key.metricType === 1 && index.key.category === 1 && index.key.material === 1 && index.unique), "Target compound unique index missing");
+  assert.ok(actualIndexes.some((index) => index.key.plant === 1 && index.key.financialYear === 1 && index.key.month === 1 && index.key.metricType === 1 && index.key.category === 1 && index.key.material === 1 && index.unique), "Actual compound unique index missing");
   assert.ok(auditIndexes.some((index) => index.key.actorUserId === 1 && index.key.createdAt === -1), "Audit actor/date index missing");
   assert.ok(auditIndexes.some((index) => index.key.entityType === 1 && index.key.entityId === 1), "Audit entity index missing");
   assert.ok(auditIndexes.some((index) => index.key.action === 1 && index.key.createdAt === -1), "Audit action/date index missing");
@@ -150,6 +153,25 @@ async function run() {
     });
 
   assert.equal(target.status, 201, target.text);
+
+  const actual = await request(gate.app)
+    .post("/api/actuals")
+    .set("Origin", origin)
+    .set("X-CSRF-Token", auth.csrf)
+    .set("Cookie", auth.cookies)
+    .send({
+      plant: created.body.plant.id,
+      financialYear: String(financialYear._id),
+      month: 2,
+      metricType: "TURNOVER",
+      category: code,
+      actualValue: 1,
+      unit: "USD",
+      source: "MANUAL",
+      notes: "Mongo gate"
+    });
+
+  assert.equal(actual.status, 201, actual.text);
   await closeGateApp(gate.server);
   process.stdout.write("✓ Backend restarted\n");
 
@@ -169,6 +191,14 @@ async function run() {
 
   assert.equal(targetList.status, 200, targetList.text);
   assert.ok(targetList.body.rows.some((row) => row.category === code), "Created target did not persist through MongoDB");
+
+  const actualList = await request(gate.app)
+    .get(`/api/actuals?plant=${encodeURIComponent(created.body.plant.id)}&category=${encodeURIComponent(code)}`)
+    .set("Cookie", restartedAuth.cookies);
+
+  assert.equal(actualList.status, 200, actualList.text);
+  assert.ok(actualList.body.rows.some((row) => row.category === code), "Created actual did not persist through MongoDB");
+  process.stdout.write("✓ Actual record persists after restart\n");
 
   const auditLogs = await request(gate.app)
     .get(`/api/audit-logs?action=CREATE_TARGET&entityType=Target&plantId=${encodeURIComponent(code)}`)

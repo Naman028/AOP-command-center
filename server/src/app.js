@@ -31,6 +31,7 @@ import { createFinancialYearRouter } from "./modules/financialYears/routes.js";
 import { createMaterialRouter } from "./modules/materials/routes.js";
 import { createPlantRouter } from "./modules/plants/routes.js";
 import { createTargetRouter } from "./modules/targets/routes.js";
+import { createActualRouter } from "./modules/actuals/routes.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 import { HttpError, forbidden } from "./utils/httpError.js";
 import { escapeFormulaValue } from "./utils/sanitize.js";
@@ -192,8 +193,8 @@ function visibleTargets(store, user, query = {}) {
 function visibleActuals(store, user, query = {}) {
   const allowedPlants = serverPlantFilter(user);
   return store.actuals
-    .filter((actual) => !query.plantId || actual.plantId === query.plantId)
-    .filter((actual) => !allowedPlants || allowedPlants.has(actual.plantId));
+    .filter((actual) => !query.plantId || actual.plant?.code === query.plantId || actual.plantId === query.plantId)
+    .filter((actual) => !allowedPlants || allowedPlants.has(actual.plant?.code ?? actual.plantId));
 }
 
 function requireActiveMasterData(store, body) {
@@ -258,6 +259,7 @@ export function createApp(options = {}) {
   app.use("/api/master-data/materials", createMaterialRouter({ store, sessionService, auditService }));
   app.use("/api/master-data/financial-years", createFinancialYearRouter({ store, sessionService, auditService }));
   app.use("/api/targets", createTargetRouter({ store, sessionService, auditService }));
+  app.use("/api/actuals", createActualRouter({ store, sessionService, auditService }));
 
   app.post(
     "/api/auth/login",

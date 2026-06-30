@@ -153,6 +153,12 @@ a {
   background: #2d6a4f;
 }
 
+.toolbar button.active-tab {
+  color: #ffffff;
+  border-color: #2d6a4f;
+  background: #2d6a4f;
+}
+
 .toolbar {
   flex-wrap: wrap;
   margin-bottom: 16px;

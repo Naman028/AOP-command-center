@@ -42,6 +42,21 @@ function targetPayload(overrides = {}) {
   };
 }
 
+function actualPayload(overrides = {}) {
+  return {
+    plant: "100000000000000000000001",
+    financialYear: "300000000000000000000001",
+    month: 2,
+    metricType: "EXPENSE",
+    category: "TOTAL",
+    actualValue: 10,
+    unit: "USD",
+    source: "MANUAL",
+    notes: "",
+    ...overrides
+  };
+}
+
 describe("security architecture", () => {
   it("fails closed in production when MongoDB is unavailable", async () => {
     const listen = vi.fn();
@@ -211,7 +226,7 @@ describe("security architecture", () => {
     const report = await request(application).get("/api/reports/summary").set("Cookie", lead.cookies);
     expect(report.status).toBe(200);
     expect(report.body.rows.every((row) => row.plant.code === "PLANT-A")).toBe(true);
-    expect(report.body.actuals.every((row) => row.plantId === "PLANT-A")).toBe(true);
+    expect(report.body.actuals.every((row) => row.plant.code === "PLANT-A")).toBe(true);
 
     const plantBReport = await request(application)
       .get("/api/reports/summary?plantId=PLANT-B")
@@ -252,18 +267,19 @@ describe("security architecture", () => {
     expect(guessedStatus.status).toBe(403);
     expect(application.locals.store.targets.some((target) => target.id === otherPlantTarget.id)).toBe(true);
 
-    const otherPlantActual = application.locals.store.actuals.find((actual) => actual.plantId === "PLANT-B");
+    const otherPlantActual = application.locals.store.actuals.find((actual) => actual.plant.code === "PLANT-B");
     const guessedActualRead = await request(application)
       .get(`/api/actuals/${otherPlantActual.id}`)
       .set("Cookie", lead.cookies);
     expect(guessedActualRead.status).toBe(403);
 
-    const guessedActualDelete = await request(application)
-      .delete(`/api/actuals/${otherPlantActual.id}`)
+    const guessedActualStatus = await request(application)
+      .patch(`/api/actuals/${otherPlantActual.id}/status`)
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", lead.csrf)
-      .set("Cookie", lead.cookies);
-    expect(guessedActualDelete.status).toBe(403);
+      .set("Cookie", lead.cookies)
+      .send({ isActive: false });
+    expect(guessedActualStatus.status).toBe(403);
 
     const unsafe = await request(application)
       .post("/api/targets")
@@ -295,7 +311,7 @@ describe("security architecture", () => {
       .post("/api/actuals")
       .set("Origin", "http://localhost:5173")
       .set("Cookie", manager.cookies)
-      .send({ plantId: "PLANT-A", financialYear: "2027", metricType: "output", period: "2027-01", value: 50 });
+      .send(actualPayload());
     expect(actualWithoutCsrf.status).toBe(403);
 
     const userPatchWithoutCsrf = await request(application)
@@ -429,20 +445,20 @@ describe("security architecture", () => {
 
     expect([first.status, second.status].sort()).toEqual([201, 409]);
 
-    const actualPayload = { plantId: "PLANT-A", financialYear: "2026", metricType: "cost", period: "2026-02", value: 10 };
+    const actualBody = actualPayload({ month: 3, metricType: "EXPENSE", actualValue: 10 });
     const [actualFirst, actualSecond] = await Promise.all([
       request(application)
         .post("/api/actuals")
         .set("Origin", "http://localhost:5173")
         .set("X-CSRF-Token", manager.csrf)
         .set("Cookie", manager.cookies)
-        .send(actualPayload),
+        .send(actualBody),
       request(application)
         .post("/api/actuals")
         .set("Origin", "http://localhost:5173")
         .set("X-CSRF-Token", manager.csrf)
         .set("Cookie", manager.cookies)
-        .send(actualPayload)
+        .send(actualBody)
     ]);
     expect([actualFirst.status, actualSecond.status].sort()).toEqual([201, 409]);
 
@@ -497,6 +513,53 @@ describe("security architecture", () => {
       .get("/api/targets?plant[$ne]=100000000000000000000001")
       .set("Cookie", manager.cookies);
     expect(unsafeTargetFilter.status).toBe(400);
+
+    const invalidActualObjectId = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ plant: "bad" }));
+    expect(invalidActualObjectId.status).toBe(400);
+
+    const invalidActualMonth = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 0 }));
+    expect(invalidActualMonth.status).toBe(400);
+
+    const invalidActualValue = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ actualValue: -1 }));
+    expect(invalidActualValue.status).toBe(400);
+
+    const unexpectedActualField = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ role: "ADMIN" }));
+    expect(unexpectedActualField.status).toBe(400);
+
+    const invalidActualSort = await request(application)
+      .get("/api/actuals?sort=passwordHash")
+      .set("Cookie", manager.cookies);
+    expect(invalidActualSort.status).toBe(400);
+
+    const invalidActualPagination = await request(application)
+      .get("/api/actuals?page=0&limit=500")
+      .set("Cookie", manager.cookies);
+    expect(invalidActualPagination.status).toBe(400);
+
+    const unsafeActualFilter = await request(application)
+      .get("/api/actuals?plant[$ne]=100000000000000000000001")
+      .set("Cookie", manager.cookies);
+    expect(unsafeActualFilter.status).toBe(400);
 
     const admin = await login(application, "admin@aop.local");
     const invalidObjectId = await request(application)
@@ -609,6 +672,121 @@ describe("security architecture", () => {
     expect(application.locals.store.auditLogs.some((entry) => entry.action === "UPDATE_TARGET")).toBe(true);
     expect(application.locals.store.auditLogs.some((entry) => entry.action === "DEACTIVATE_TARGET")).toBe(true);
     expect(application.locals.store.auditLogs.some((entry) => entry.action === "REACTIVATE_TARGET")).toBe(true);
+    expect(JSON.stringify(application.locals.store.auditLogs)).not.toContain("Password123!");
+  });
+
+  it("supports Phase 4 manual actual entry authorization, material rules, source rules, and status lifecycle", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+    const manager = await login(application, "manager@aop.local");
+    const lead = await login(application, "lead-a@aop.local");
+    const staff = await login(application, "staff@aop.local");
+
+    const staffList = await request(application).get("/api/actuals").set("Cookie", staff.cookies);
+    expect(staffList.status).toBe(403);
+
+    const adminCreate = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send(actualPayload({ month: 4, metricType: "TURNOVER", actualValue: 20 }));
+    expect(adminCreate.status).toBe(201);
+    expect(adminCreate.body.actual.source).toBe("MANUAL");
+
+    const managerEdit = await request(application)
+      .patch(`/api/actuals/${adminCreate.body.actual.id}`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 4, metricType: "TURNOVER", actualValue: 25 }));
+    expect(managerEdit.status).toBe(200);
+    expect(managerEdit.body.actual.actualValue).toBe(25);
+
+    const leadCreate = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", lead.csrf)
+      .set("Cookie", lead.cookies)
+      .send(actualPayload({ month: 5, metricType: "EARNINGS", actualValue: 30 }));
+    expect(leadCreate.status).toBe(201);
+
+    const forbiddenLeadPlant = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", lead.csrf)
+      .set("Cookie", lead.cookies)
+      .send(actualPayload({ plant: "100000000000000000000002", month: 5, metricType: "EARNINGS" }));
+    expect(forbiddenLeadPlant.status).toBe(403);
+
+    const excelImport = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 6, source: "EXCEL_IMPORT" }));
+    expect(excelImport.status).toBe(400);
+
+    const missingConsumptionMaterial = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 6, metricType: "CONSUMPTION", material: null }));
+    expect(missingConsumptionMaterial.status).toBe(400);
+
+    const materialOnTurnover = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 6, metricType: "TURNOVER", material: "200000000000000000000001" }));
+    expect(materialOnTurnover.status).toBe(400);
+
+    const inactiveMaterial = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 6, metricType: "CONSUMPTION", material: "200000000000000000000002", unit: "EA" }));
+    expect(inactiveMaterial.status).toBe(400);
+
+    const consumption = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 6, metricType: "CONSUMPTION", material: "200000000000000000000001", unit: "EA" }));
+    expect(consumption.status).toBe(201);
+
+    const deactivated = await request(application)
+      .patch(`/api/actuals/${consumption.body.actual.id}/status`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({ isActive: false });
+    expect(deactivated.status).toBe(200);
+    expect(deactivated.body.actual.isActive).toBe(false);
+
+    const historical = await request(application)
+      .get(`/api/actuals/${consumption.body.actual.id}`)
+      .set("Cookie", manager.cookies);
+    expect(historical.status).toBe(200);
+    expect(historical.body.actual.actualValue).toBe(consumption.body.actual.actualValue);
+
+    const reactivated = await request(application)
+      .patch(`/api/actuals/${consumption.body.actual.id}/status`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({ isActive: true });
+    expect(reactivated.status).toBe(200);
+    expect(reactivated.body.actual.isActive).toBe(true);
+
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "CREATE_ACTUAL")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "UPDATE_ACTUAL")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "DEACTIVATE_ACTUAL")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "REACTIVATE_ACTUAL")).toBe(true);
     expect(JSON.stringify(application.locals.store.auditLogs)).not.toContain("Password123!");
   });
 
@@ -793,7 +971,7 @@ describe("security architecture", () => {
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", manager.csrf)
       .set("Cookie", manager.cookies)
-      .send({ plantId: "PLANT-A", financialYear: "2025", metricType: "cost", period: "2025-01", value: 100 });
+      .send(actualPayload({ financialYear: "300000000000000000000002" }));
     expect(inactiveYearWrite.status).toBe(400);
 
     const deleteReferencedPlant = await request(application)

@@ -5,6 +5,7 @@ import { AppLayout } from "../components/layout/AppLayout.jsx";
 import { RequireAuth } from "../guards/RequireAuth.jsx";
 import { RequirePermission } from "../guards/RequirePermission.jsx";
 import { AuditLogsPage } from "../pages/admin/AuditLogsPage.jsx";
+import { ActualEntryPage } from "../pages/actuals/ActualEntryPage.jsx";
 import { DashboardPage } from "../pages/dashboard/DashboardPage.jsx";
 import { MasterDataPage } from "../pages/masterData/MasterDataPage.jsx";
 import { TargetPlanningPage } from "../pages/planning/TargetPlanningPage.jsx";
@@ -40,6 +41,7 @@ export function App() {
               <Route path="/planning/expenses" element={<RequirePermission permission="TARGETS_VIEW"><TargetPlanningPage metricType="EXPENSE" /></RequirePermission>} />
               <Route path="/planning/consumption" element={<RequirePermission permission="TARGETS_VIEW"><TargetPlanningPage metricType="CONSUMPTION" /></RequirePermission>} />
               <Route path="/planning/earnings" element={<RequirePermission permission="TARGETS_VIEW"><TargetPlanningPage metricType="EARNINGS" /></RequirePermission>} />
+              <Route path="/actuals/manual-entry" element={<RequirePermission permission="ACTUALS_VIEW"><ActualEntryPage /></RequirePermission>} />
               <Route path="/actuals/file-drop" element={<RequirePermission permission="IMPORTS_MANAGE"><SimplePage title="File Drop" /></RequirePermission>} />
               <Route path="/reports" element={<RequirePermission permission="REPORTS_VIEW"><SimplePage title="Reports" /></RequirePermission>} />
               <Route path="/admin/users" element={<RequirePermission permission="USERS_MANAGE"><SimplePage title="Users" /></RequirePermission>} />

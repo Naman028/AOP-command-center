@@ -1,13 +1,14 @@
 export function loadConfig(overrides = {}) {
   const nodeEnv = overrides.NODE_ENV ?? process.env.NODE_ENV ?? "development";
   const clientOrigins = overrides.CLIENT_ORIGINS ?? process.env.CLIENT_ORIGINS ?? "http://localhost:5173";
+  const mongoUri = overrides.MONGODB_URI ?? process.env.MONGODB_URI ?? (nodeEnv === "production" ? undefined : "mongodb://localhost:27017/aop_command_center_dev");
 
   return {
     nodeEnv,
     isProduction: nodeEnv === "production",
     port: Number(overrides.PORT ?? process.env.PORT ?? 4000),
     clientOrigins: clientOrigins.split(",").map((origin) => origin.trim()).filter(Boolean),
-    mongoUri: overrides.MONGODB_URI ?? process.env.MONGODB_URI ?? "mongodb://localhost:27017/aop_command_center_dev",
+    mongoUri,
     accessTokenSecret: overrides.ACCESS_TOKEN_SECRET ?? process.env.ACCESS_TOKEN_SECRET ?? "dev-access-secret-change-me",
     refreshTokenSecret: overrides.REFRESH_TOKEN_SECRET ?? process.env.REFRESH_TOKEN_SECRET ?? "dev-refresh-secret-change-me",
     cookieDomain: overrides.COOKIE_DOMAIN ?? process.env.COOKIE_DOMAIN,

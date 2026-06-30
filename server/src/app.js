@@ -220,7 +220,8 @@ function scopedActual(store, user, actualId) {
 
 export function createApp(options = {}) {
   const config = loadConfig(options.config);
-  const store = options.store ?? createSeedStore(config.bcryptWorkFactor);
+  const seedStore = createSeedStore(config.bcryptWorkFactor);
+  const store = options.store ? { ...seedStore, ...options.store } : seedStore;
   const auditService = createAuditService(store);
   const sessionService = createSessionService({ config, store, auditService });
   const upload = buildUpload(config);

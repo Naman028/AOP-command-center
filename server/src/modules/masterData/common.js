@@ -48,6 +48,21 @@ export function listRecords(records, query, allowedSorts, searchFields) {
   return { rows: rows.slice(start, start + limit), page, limit, total };
 }
 
+export function toApiRecord(record) {
+  if (!record) {
+    return record;
+  }
+  const id = String(record._id ?? record.id);
+  const apiRecord = { ...record, id };
+  delete apiRecord._id;
+  delete apiRecord.__v;
+  return apiRecord;
+}
+
+export function isDuplicateKeyError(error) {
+  return error?.code === 11000;
+}
+
 export function requireObjectId(id) {
   if (!mongoose.isValidObjectId(id)) {
     throw new HttpError(400, "Invalid identifier", "INVALID_OBJECT_ID");

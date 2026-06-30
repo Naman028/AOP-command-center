@@ -3,10 +3,10 @@ import mongoose from "mongoose";
 const plantSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    code: { type: String, required: true, trim: true, uppercase: true, unique: true },
+    code: { type: String, required: true, trim: true, uppercase: true },
     location: { type: String, required: true, trim: true },
     businessUnit: { type: String, required: true, trim: true },
-    isActive: { type: Boolean, default: true, index: true },
+    isActive: { type: Boolean, default: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
   },

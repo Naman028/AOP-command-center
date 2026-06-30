@@ -2,8 +2,10 @@ import crypto from "node:crypto";
 import express from "express";
 import { z } from "zod";
 import { PERMISSIONS } from "../../constants/permissions.js";
+import { FinancialYear } from "../../models/FinancialYear.js";
+import { asyncHandler } from "../../utils/asyncHandler.js";
 import { HttpError } from "../../utils/httpError.js";
-import { duplicateConflict, listRecords, parseListQuery, registerReadWriteRoutes, requireObjectId } from "../masterData/common.js";
+import { duplicateConflict, isDuplicateKeyError, listRecords, parseListQuery, registerReadWriteRoutes, requireObjectId, toApiRecord } from "../masterData/common.js";
 
 const financialYearBaseSchema = z.object({
   label: z.string().trim().min(4).max(24),
@@ -22,21 +24,65 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
   const router = express.Router();
   const { requireWrite, validateId, validateBody } = registerReadWriteRoutes(router, sessionService);
 
-  router.get("/", (req, res) => {
+  router.get("/", asyncHandler(async (req, res) => {
     const query = activeOnlyUnlessMasterDataViewer(req, parseListQuery(req.query));
-    res.json(listRecords(store.financialYears, query, ["label", "startDate", "endDate"], ["label"]));
-  });
+    const records = store.useMongo ? (await FinancialYear.find().lean()).map(toApiRecord) : store.financialYears;
+    res.json(listRecords(records, query, ["label", "startDate", "endDate"], ["label"]));
+  }));
 
-  router.post("/", requireWrite, validateBody(financialYearCreateSchema), (req, res) => {
+  router.post("/", requireWrite, validateBody(financialYearCreateSchema), asyncHandler(async (req, res) => {
+    if (store.useMongo) {
+      if (req.body.isActive && await FinancialYear.exists({ isActive: true })) {
+        throw new HttpError(409, "Only one financial year may be active", "ACTIVE_FINANCIAL_YEAR_EXISTS");
+      }
+      try {
+        const created = await FinancialYear.create({ ...req.body, createdBy: req.user.id, updatedBy: req.user.id });
+        const financialYear = toApiRecord(created.toObject());
+        auditService.record({ actorUserId: req.user.id, action: "CREATE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, after: financialYear, requestId: req.id });
+        res.status(201).json({ financialYear });
+        return;
+      } catch (error) {
+        if (isDuplicateKeyError(error)) {
+          throw duplicateConflict("Financial year label already exists");
+        }
+        throw error;
+      }
+    }
     assertUnique(store, req.body.label);
     assertOnlyOneActive(store, req.body.isActive);
     const financialYear = { id: newId(), ...req.body, createdBy: req.user.id, updatedBy: req.user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     store.financialYears.push(financialYear);
     auditService.record({ actorUserId: req.user.id, action: "CREATE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, after: financialYear, requestId: req.id });
     res.status(201).json({ financialYear });
-  });
+  }));
 
-  router.patch("/:id", requireWrite, validateId, validateBody(financialYearUpdateSchema), (req, res) => {
+  router.patch("/:id", requireWrite, validateId, validateBody(financialYearUpdateSchema), asyncHandler(async (req, res) => {
+    if (store.useMongo) {
+      const existing = await FinancialYear.findById(req.params.id).lean();
+      if (!existing) {
+        throw new HttpError(404, "Financial year not found", "FINANCIAL_YEAR_NOT_FOUND");
+      }
+      if (req.body.isActive === true && !existing.isActive && await FinancialYear.exists({ isActive: true })) {
+        throw new HttpError(409, "Only one financial year may be active", "ACTIVE_FINANCIAL_YEAR_EXISTS");
+      }
+      const next = { ...existing, ...req.body };
+      if (new Date(next.startDate) >= new Date(next.endDate)) {
+        throw new HttpError(400, "startDate must be before endDate", "INVALID_FINANCIAL_YEAR_DATES");
+      }
+      try {
+        const updated = await FinancialYear.findByIdAndUpdate(req.params.id, { ...req.body, updatedBy: req.user.id }, { new: true, runValidators: true }).lean();
+        const before = toApiRecord(existing);
+        const financialYear = toApiRecord(updated);
+        auditService.record({ actorUserId: req.user.id, action: financialYear.isActive ? "UPDATE_FINANCIAL_YEAR" : "DEACTIVATE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, before, after: financialYear, requestId: req.id });
+        res.json({ financialYear });
+        return;
+      } catch (error) {
+        if (isDuplicateKeyError(error)) {
+          throw duplicateConflict("Financial year label already exists");
+        }
+        throw error;
+      }
+    }
     const financialYear = findFinancialYear(store, req.params.id);
     if (req.body.label && req.body.label !== financialYear.label) {
       assertUnique(store, req.body.label);
@@ -52,9 +98,24 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
     Object.assign(financialYear, req.body, { updatedBy: req.user.id, updatedAt: new Date().toISOString() });
     auditService.record({ actorUserId: req.user.id, action: financialYear.isActive ? "UPDATE_FINANCIAL_YEAR" : "DEACTIVATE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, before, after: financialYear, requestId: req.id });
     res.json({ financialYear });
-  });
+  }));
 
-  router.delete("/:id", requireWrite, validateId, (req, res) => {
+  router.delete("/:id", requireWrite, validateId, asyncHandler(async (req, res) => {
+    if (store.useMongo) {
+      const existing = await FinancialYear.findById(req.params.id).lean();
+      if (!existing) {
+        throw new HttpError(404, "Financial year not found", "FINANCIAL_YEAR_NOT_FOUND");
+      }
+      const financialYear = toApiRecord(existing);
+      const referenced = store.targets.some((target) => target.financialYear === financialYear.label) || store.actuals.some((actual) => actual.financialYear === financialYear.label);
+      if (referenced) {
+        throw new HttpError(409, "Financial year is referenced by operational data", "MASTER_DATA_REFERENCED");
+      }
+      await FinancialYear.deleteOne({ _id: req.params.id });
+      auditService.record({ actorUserId: req.user.id, action: "DELETE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, before: financialYear, requestId: req.id });
+      res.status(204).send();
+      return;
+    }
     const financialYear = findFinancialYear(store, req.params.id);
     const referenced = store.targets.some((target) => target.financialYear === financialYear.label) || store.actuals.some((actual) => actual.financialYear === financialYear.label);
     if (referenced) {
@@ -63,7 +124,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
     store.financialYears = store.financialYears.filter((candidate) => candidate.id !== financialYear.id);
     auditService.record({ actorUserId: req.user.id, action: "DELETE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, before: financialYear, requestId: req.id });
     res.status(204).send();
-  });
+  }));
 
   return router;
 }

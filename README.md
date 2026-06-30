@@ -4,9 +4,9 @@ Secure MERN command center for planning, actuals, imports, reports, and plant-sc
 
 ## Phase Status
 
-Current step: Phase 0 - final architecture and security structure complete.
+Current step: Phase 2 - master data management implemented.
 
-Phase 0 defines the target architecture, project structure, roles, permissions, security controls, API boundaries, upload rules, audit model, deployment requirements, and acceptance criteria. Implementation phases must not claim a security feature is complete until allowed and denied scenarios are tested.
+The security foundation, role permissions, plant-scope checks, audit logging, and acceptance tests are in place. Phase 2 adds Plants, Materials, and Financial Years master data.
 
 ## Architecture
 
@@ -30,10 +30,22 @@ React must never connect directly to MongoDB. Database credentials and private s
 
 ## Development
 
-Install workspace dependencies after implementation packages are added:
+Install workspace dependencies:
 
 ```sh
 npm install
+```
+
+Start frontend and backend together:
+
+```sh
+npm run dev
+```
+
+If ports are stuck from an old run:
+
+```sh
+npm run dev:stop
 ```
 
 Run all checks:
@@ -43,4 +55,3 @@ npm run lint
 npm test
 npm run security:check
 ```
-

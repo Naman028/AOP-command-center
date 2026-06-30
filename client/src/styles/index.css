@@ -118,6 +118,144 @@ a {
   padding: 24px;
 }
 
+.page-header,
+.toolbar,
+.pagination,
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-header {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.page-header button,
+.toolbar button,
+.pagination button,
+.actions button,
+.modal-actions button {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid #b9c7bf;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.page-header button,
+.modal-actions button[type="submit"] {
+  color: #ffffff;
+  border-color: #2d6a4f;
+  background: #2d6a4f;
+}
+
+.toolbar {
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.toolbar input,
+.toolbar select,
+.modal input {
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid #b9c7bf;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid #dce5df;
+  background: #ffffff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid #e7eee9;
+  white-space: nowrap;
+}
+
+th {
+  color: #4c5d54;
+  background: #f7faf8;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-flex;
+  min-width: 70px;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.badge.active {
+  color: #14532d;
+  background: #dcfce7;
+}
+
+.badge.inactive {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+
+.state-text {
+  color: #53655b;
+}
+
+.pagination {
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 20, 0.45);
+}
+
+.modal {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.modal label {
+  display: grid;
+  gap: 6px;
+}
+
+.check-row {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+}
+
+.modal-actions {
+  justify-content: flex-end;
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

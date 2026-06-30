@@ -27,6 +27,9 @@ import { rejectUnsafeInput, validateObjectIdParam, validateSchema } from "./midd
 import { createAuditService } from "./services/auditService.js";
 import { createSessionService } from "./services/sessionService.js";
 import { createSeedStore } from "./services/userStore.js";
+import { createFinancialYearRouter } from "./modules/financialYears/routes.js";
+import { createMaterialRouter } from "./modules/materials/routes.js";
+import { createPlantRouter } from "./modules/plants/routes.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 import { HttpError, forbidden } from "./utils/httpError.js";
 import { escapeFormulaValue } from "./utils/sanitize.js";
@@ -180,6 +183,17 @@ function visibleActuals(store, user, query = {}) {
     .filter((actual) => !allowedPlants || allowedPlants.has(actual.plantId));
 }
 
+function requireActiveMasterData(store, body) {
+  const plant = store.plants.find((candidate) => candidate.code === body.plantId && candidate.isActive);
+  if (!plant) {
+    throw new HttpError(400, "Plant is inactive or unknown", "INVALID_PLANT");
+  }
+  const financialYear = store.financialYears.find((candidate) => candidate.label === body.financialYear && candidate.isActive);
+  if (!financialYear) {
+    throw new HttpError(400, "Financial year is inactive or unknown", "INVALID_FINANCIAL_YEAR");
+  }
+}
+
 function scopedTarget(store, user, targetId) {
   const allowedPlants = serverPlantFilter(user);
   const target = store.targets.find((candidate) => candidate.id === targetId);
@@ -225,6 +239,10 @@ export function createApp(options = {}) {
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
+
+  app.use("/api/master-data/plants", createPlantRouter({ store, sessionService, auditService }));
+  app.use("/api/master-data/materials", createMaterialRouter({ store, sessionService, auditService }));
+  app.use("/api/master-data/financial-years", createFinancialYearRouter({ store, sessionService, auditService }));
 
   app.post(
     "/api/auth/login",
@@ -327,6 +345,7 @@ export function createApp(options = {}) {
     requirePlantAccess(),
     validateSchema(targetSchema),
     (req, res) => {
+      requireActiveMasterData(store, req.body);
       if (store.targets.some((target) => target.plantId === req.body.plantId && target.financialYear === req.body.financialYear && target.metricType === req.body.metricType)) {
         throw new HttpError(409, "Duplicate target", "DUPLICATE_TARGET");
       }
@@ -353,6 +372,7 @@ export function createApp(options = {}) {
     requirePermission(PERMISSIONS.TARGETS_MANAGE),
     validateSchema(targetSchema),
     (req, res) => {
+      requireActiveMasterData(store, req.body);
       const target = scopedTarget(store, req.user, req.params.targetId);
       if (req.body.plantId !== target.plantId) {
         requirePlantAccess()(req, res, (error) => {
@@ -396,6 +416,7 @@ export function createApp(options = {}) {
     requirePlantAccess(),
     validateSchema(actualSchema),
     (req, res) => {
+      requireActiveMasterData(store, req.body);
       if (store.actuals.some((actual) => actual.plantId === req.body.plantId && actual.financialYear === req.body.financialYear && actual.metricType === req.body.metricType && actual.period === req.body.period)) {
         throw new HttpError(409, "Duplicate actual", "DUPLICATE_ACTUAL");
       }
@@ -412,6 +433,7 @@ export function createApp(options = {}) {
     requirePermission(PERMISSIONS.ACTUALS_MANAGE),
     validateSchema(actualSchema),
     (req, res) => {
+      requireActiveMasterData(store, req.body);
       const actual = scopedActual(store, req.user, req.params.actualId);
       if (req.body.plantId !== actual.plantId) {
         requirePlantAccess()(req, res, (error) => {

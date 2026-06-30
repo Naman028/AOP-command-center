@@ -116,4 +116,33 @@ describe("route guards", () => {
       }
     }
   });
+
+  it("allows Manager direct URL access to master-data pages and denies Staff", async () => {
+    renderProtected({
+      path: "/master-data/plants",
+      permission: "MASTER_DATA_VIEW",
+      meResponse: Response.json({
+        user: {
+          role: "MANAGER",
+          assignedPlants: ["PLANT-A", "PLANT-B"],
+          permissions: ["MASTER_DATA_VIEW"]
+        }
+      })
+    });
+    await waitFor(() => expect(screen.getByText("Protected Content")).toBeTruthy());
+    cleanup();
+
+    renderProtected({
+      path: "/master-data/plants",
+      permission: "MASTER_DATA_VIEW",
+      meResponse: Response.json({
+        user: {
+          role: "STAFF",
+          assignedPlants: ["PLANT-A"],
+          permissions: ["DASHBOARD_VIEW", "REPORTS_VIEW"]
+        }
+      })
+    });
+    await waitFor(() => expect(screen.getByText("Unauthorized")).toBeTruthy());
+  });
 });

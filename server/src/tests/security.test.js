@@ -387,7 +387,7 @@ describe("security architecture", () => {
   it("blocks duplicate target and actual insertion and rejects invalid API input safely", async () => {
     const application = app();
     const manager = await login(application, "manager@aop.local");
-    const payload = { plantId: "PLANT-A", financialYear: "2031", metricType: "output", value: 10 };
+    const payload = { plantId: "PLANT-A", financialYear: "2026", metricType: "cost", value: 10 };
     const [first, second] = await Promise.all([
       request(application)
         .post("/api/targets")
@@ -405,7 +405,7 @@ describe("security architecture", () => {
 
     expect([first.status, second.status].sort()).toEqual([201, 409]);
 
-    const actualPayload = { plantId: "PLANT-A", financialYear: "2031", metricType: "output", period: "2031-01", value: 10 };
+    const actualPayload = { plantId: "PLANT-A", financialYear: "2026", metricType: "cost", period: "2026-02", value: 10 };
     const [actualFirst, actualSecond] = await Promise.all([
       request(application)
         .post("/api/actuals")
@@ -462,5 +462,149 @@ describe("security architecture", () => {
     expect(body).not.toContain("mongodb");
     expect(body).not.toContain("accessToken");
     expect(body).not.toContain("Password123!");
+  });
+
+  it("supports admin master-data management and read-only access for other roles", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+    const manager = await login(application, "manager@aop.local");
+    const staff = await login(application, "staff@aop.local");
+    const lead = await login(application, "lead-a@aop.local");
+
+    const created = await request(application)
+      .post("/api/master-data/plants")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ name: "Plant C", code: "plant-c", location: "East Campus", businessUnit: "Operations", isActive: true });
+    expect(created.status).toBe(201);
+    expect(created.body.plant.code).toBe("PLANT-C");
+
+    const edited = await request(application)
+      .patch(`/api/master-data/plants/${created.body.plant.id}`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ location: "West Campus", isActive: false });
+    expect(edited.status).toBe(200);
+    expect(edited.body.plant.location).toBe("West Campus");
+    expect(edited.body.plant.isActive).toBe(false);
+
+    const managerWrite = await request(application)
+      .post("/api/master-data/materials")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({ name: "Blocked", code: "MAT-X", category: "Raw", unit: "KG", isActive: true });
+    expect(managerWrite.status).toBe(403);
+
+    for (const auth of [staff, lead]) {
+      const denied = await request(application)
+        .post("/api/master-data/plants")
+        .set("Origin", "http://localhost:5173")
+        .set("X-CSRF-Token", auth.csrf)
+        .set("Cookie", auth.cookies)
+        .send({ name: "Blocked", code: "PLANT-X", location: "Blocked", businessUnit: "Blocked", isActive: true });
+      expect(denied.status).toBe(403);
+    }
+
+    const staffRead = await request(application).get("/api/master-data/plants").set("Cookie", staff.cookies);
+    expect(staffRead.status).toBe(200);
+    expect(staffRead.body.rows.every((plant) => plant.isActive)).toBe(true);
+
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "CREATE_PLANT")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "DEACTIVATE_PLANT")).toBe(true);
+  });
+
+  it("enforces master-data duplicate, validation, active, and reference constraints", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+    const manager = await login(application, "manager@aop.local");
+
+    const duplicatePlant = await request(application)
+      .post("/api/master-data/plants")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ name: "Duplicate", code: "PLANT-A", location: "North", businessUnit: "Operations", isActive: true });
+    expect(duplicatePlant.status).toBe(409);
+
+    const duplicateMaterial = await request(application)
+      .post("/api/master-data/materials")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ name: "Duplicate", code: "MAT-A", category: "Finished Goods", unit: "EA", isActive: true });
+    expect(duplicateMaterial.status).toBe(409);
+
+    const duplicateYear = await request(application)
+      .post("/api/master-data/financial-years")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ label: "2026", startDate: "2026-01-01", endDate: "2026-12-31", isActive: false });
+    expect(duplicateYear.status).toBe(409);
+
+    const invalidDate = await request(application)
+      .post("/api/master-data/financial-years")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ label: "2027", startDate: "2027-12-31", endDate: "2027-01-01", isActive: false });
+    expect(invalidDate.status).toBe(400);
+
+    const unknownField = await request(application)
+      .post("/api/master-data/materials")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ name: "Material B", code: "MAT-B", category: "Raw", unit: "KG", isActive: true, role: "ADMIN" });
+    expect(unknownField.status).toBe(400);
+
+    const invalidSort = await request(application)
+      .get("/api/master-data/plants?sort=passwordHash")
+      .set("Cookie", manager.cookies);
+    expect(invalidSort.status).toBe(400);
+
+    const invalidPagination = await request(application)
+      .get("/api/master-data/plants?page=0&limit=500")
+      .set("Cookie", manager.cookies);
+    expect(invalidPagination.status).toBe(400);
+
+    const unsafeFilter = await request(application)
+      .get("/api/master-data/plants?search[$ne]=x")
+      .set("Cookie", manager.cookies);
+    expect(unsafeFilter.status).toBe(400);
+
+    const invalidObjectId = await request(application)
+      .patch("/api/master-data/plants/not-an-object-id")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ location: "Nowhere" });
+    expect(invalidObjectId.status).toBe(400);
+
+    const inactivePlantWrite = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({ plantId: "PLANT-Z", financialYear: "2026", metricType: "cost", value: 100 });
+    expect(inactivePlantWrite.status).toBe(400);
+
+    const inactiveYearWrite = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({ plantId: "PLANT-A", financialYear: "2025", metricType: "cost", period: "2025-01", value: 100 });
+    expect(inactiveYearWrite.status).toBe(400);
+
+    const deleteReferencedPlant = await request(application)
+      .delete("/api/master-data/plants/100000000000000000000001")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies);
+    expect(deleteReferencedPlant.status).toBe(409);
   });
 });

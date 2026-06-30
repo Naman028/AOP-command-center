@@ -30,7 +30,7 @@ export function createPlantRouter({ store, sessionService, auditService }) {
       try {
         const created = await Plant.create({ ...req.body, createdBy: req.user.id, updatedBy: req.user.id });
         const plant = toApiRecord(created.toObject());
-        auditService.record({ actorUserId: req.user.id, action: "CREATE_PLANT", entityType: "Plant", entityId: plant.id, after: plant, requestId: req.id });
+        await auditService.record({ actorUserId: req.user.id, action: "CREATE_MASTER_DATA", entityType: "Plant", entityId: plant.id, after: plant, requestId: req.id }, req);
         res.status(201).json({ plant });
         return;
       } catch (error) {
@@ -45,7 +45,7 @@ export function createPlantRouter({ store, sessionService, auditService }) {
     }
     const plant = { id: newId(), ...req.body, createdBy: req.user.id, updatedBy: req.user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     store.plants.push(plant);
-    auditService.record({ actorUserId: req.user.id, action: "CREATE_PLANT", entityType: "Plant", entityId: plant.id, after: plant, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "CREATE_MASTER_DATA", entityType: "Plant", entityId: plant.id, after: plant, requestId: req.id }, req);
     res.status(201).json({ plant });
   }));
 
@@ -59,7 +59,7 @@ export function createPlantRouter({ store, sessionService, auditService }) {
         const updated = await Plant.findByIdAndUpdate(req.params.id, { ...req.body, updatedBy: req.user.id }, { new: true, runValidators: true }).lean();
         const before = toApiRecord(existing);
         const plant = toApiRecord(updated);
-        auditService.record({ actorUserId: req.user.id, action: plant.isActive ? "UPDATE_PLANT" : "DEACTIVATE_PLANT", entityType: "Plant", entityId: plant.id, before, after: plant, requestId: req.id });
+        await auditService.record({ actorUserId: req.user.id, action: plant.isActive ? "UPDATE_MASTER_DATA" : "DEACTIVATE_MASTER_DATA", entityType: "Plant", entityId: plant.id, before, after: plant, requestId: req.id }, req);
         res.json({ plant });
         return;
       } catch (error) {
@@ -76,7 +76,7 @@ export function createPlantRouter({ store, sessionService, auditService }) {
     }
     const before = { ...plant };
     Object.assign(plant, req.body, { updatedBy: req.user.id, updatedAt: new Date().toISOString() });
-    auditService.record({ actorUserId: req.user.id, action: plant.isActive ? "UPDATE_PLANT" : "DEACTIVATE_PLANT", entityType: "Plant", entityId: plant.id, before, after: plant, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: plant.isActive ? "UPDATE_MASTER_DATA" : "DEACTIVATE_MASTER_DATA", entityType: "Plant", entityId: plant.id, before, after: plant, requestId: req.id }, req);
     res.json({ plant });
   }));
 
@@ -92,7 +92,7 @@ export function createPlantRouter({ store, sessionService, auditService }) {
         throw new HttpError(409, "Plant is referenced by operational data", "MASTER_DATA_REFERENCED");
       }
       await Plant.deleteOne({ _id: req.params.id });
-      auditService.record({ actorUserId: req.user.id, action: "DELETE_PLANT", entityType: "Plant", entityId: plant.id, before: plant, requestId: req.id });
+      await auditService.record({ actorUserId: req.user.id, action: "DELETE_MASTER_DATA", entityType: "Plant", entityId: plant.id, before: plant, requestId: req.id }, req);
       res.status(204).send();
       return;
     }
@@ -102,7 +102,7 @@ export function createPlantRouter({ store, sessionService, auditService }) {
       throw new HttpError(409, "Plant is referenced by operational data", "MASTER_DATA_REFERENCED");
     }
     store.plants = store.plants.filter((candidate) => candidate.id !== plant.id);
-    auditService.record({ actorUserId: req.user.id, action: "DELETE_PLANT", entityType: "Plant", entityId: plant.id, before: plant, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "DELETE_MASTER_DATA", entityType: "Plant", entityId: plant.id, before: plant, requestId: req.id }, req);
     res.status(204).send();
   }));
 

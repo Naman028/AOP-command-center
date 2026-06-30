@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 import mongoose from "mongoose";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config/env.js";
+import { AuditLog } from "./models/AuditLog.js";
 import { FinancialYear } from "./models/FinancialYear.js";
 import { Material } from "./models/Material.js";
 import { Plant } from "./models/Plant.js";
@@ -14,7 +15,8 @@ export async function syncMasterDataIndexes() {
     Plant.syncIndexes(),
     Material.syncIndexes(),
     FinancialYear.syncIndexes(),
-    Target.syncIndexes()
+    Target.syncIndexes(),
+    AuditLog.syncIndexes()
   ]);
 }
 

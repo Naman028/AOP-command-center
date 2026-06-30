@@ -68,6 +68,18 @@ const updateUserSchema = z.object({
   isActive: z.boolean().optional()
 }).strict();
 
+const auditLogQuerySchema = z.object({
+  action: z.string().trim().min(1).max(80).optional(),
+  entityType: z.string().trim().min(1).max(80).optional(),
+  entityId: z.string().trim().min(1).max(120).optional(),
+  plantId: z.string().trim().min(1).max(80).optional(),
+  dateFrom: z.string().datetime().optional(),
+  dateTo: z.string().datetime().optional(),
+  sort: z.enum(["createdAt", "-createdAt", "action", "-action", "entityType", "-entityType"]).optional().default("-createdAt"),
+  page: z.coerce.number().int().min(1).max(1000).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20)
+}).strict();
+
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function sensitiveNoStore(_req, res, next) {
@@ -255,11 +267,11 @@ export function createApp(options = {}) {
       const user = store.users.find((candidate) => candidate.email === req.body.email);
       const valid = user?.isActive && await bcrypt.compare(req.body.password, user.passwordHash);
       if (!valid) {
-        auditService.record({ action: "LOGIN_FAILED", entityType: "User", requestId: req.id });
+        await auditService.record({ action: "LOGIN_FAILED", entityType: "User", requestId: req.id }, req);
         throw new HttpError(401, "Invalid email or password", "LOGIN_FAILED");
       }
       const csrfToken = await sessionService.setAuthCookies(res, user, req);
-      auditService.record({ actorUserId: user.id, action: "LOGIN_SUCCESS", entityType: "User", entityId: user.id, requestId: req.id });
+      await auditService.record({ actorUserId: user.id, action: "LOGIN_SUCCESS", entityType: "User", entityId: user.id, requestId: req.id }, req);
       res.json({ user: sessionService.publicUser(user), csrfToken });
     })
   );
@@ -276,7 +288,7 @@ export function createApp(options = {}) {
   app.post("/api/auth/logout", authenticate(sessionService), asyncHandler(async (req, res) => {
     await sessionService.revokeCurrentRefreshToken(req.cookies?.refreshToken);
     sessionService.clearAuthCookies(res);
-    auditService.record({ actorUserId: req.user.id, action: "LOGOUT", entityType: "Session", requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "LOGOUT", entityType: "Session", requestId: req.id }, req);
     res.json({ ok: true });
   }));
 
@@ -293,7 +305,7 @@ export function createApp(options = {}) {
       user.passwordHash = await bcrypt.hash(req.body.newPassword, config.bcryptWorkFactor);
       sessionService.revokeUserSessions(user.id);
       sessionService.clearAuthCookies(res);
-      auditService.record({ actorUserId: user.id, action: "CHANGE_PASSWORD", entityType: "User", entityId: user.id, requestId: req.id });
+      await auditService.record({ actorUserId: user.id, action: "CHANGE_PASSWORD", entityType: "User", entityId: user.id, requestId: req.id }, req);
       res.json({ ok: true });
     })
   );
@@ -332,13 +344,13 @@ export function createApp(options = {}) {
     requirePermission(PERMISSIONS.REPORTS_EXPORT),
     validateSchema(reportQuerySchema, "query"),
     sensitiveNoStore,
-    (req, res) => {
+    asyncHandler(async (req, res) => {
       const rows = visibleTargets(store, req.user, req.validatedQuery).map((row) => Object.fromEntries(
         Object.entries(row).map(([key, value]) => [key, escapeFormulaValue(value)])
       ));
-      auditService.record({ actorUserId: req.user.id, action: "EXPORT_REPORT", entityType: "Report", requestId: req.id });
+      await auditService.record({ actorUserId: req.user.id, action: "EXPORT_REPORT", entityType: "Report", requestId: req.id }, req);
       res.type("text/csv").send(stringify(rows, { header: true }));
-    }
+    })
   );
 
   app.post(
@@ -506,9 +518,10 @@ export function createApp(options = {}) {
     authenticate(sessionService),
     requirePermission(PERMISSIONS.AUDIT_LOGS_VIEW),
     sensitiveNoStore,
-    (_req, res) => {
-      res.json({ auditLogs: store.auditLogs });
-    }
+    validateSchema(auditLogQuerySchema, "query"),
+    asyncHandler(async (req, res) => {
+      res.json(await auditService.list(req.validatedQuery));
+    })
   );
 
   app.post(

@@ -125,13 +125,13 @@ export function createSessionService({ config, store, auditService }) {
         session.revokedAt = new Date();
         session.lastUsedAt = new Date();
         const csrfToken = await setAuthCookies(res, user, req);
-        auditService.record({
+        await auditService.record({
           actorUserId: user.id,
           action: "REFRESH_TOKEN_USED",
           entityType: "Session",
           entityId: session.id,
           requestId: req.id
-        });
+        }, req);
         return { user: publicUser(user), csrfToken };
       }
     }

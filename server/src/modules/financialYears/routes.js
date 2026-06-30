@@ -38,7 +38,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
       try {
         const created = await FinancialYear.create({ ...req.body, createdBy: req.user.id, updatedBy: req.user.id });
         const financialYear = toApiRecord(created.toObject());
-        auditService.record({ actorUserId: req.user.id, action: "CREATE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, after: financialYear, requestId: req.id });
+        await auditService.record({ actorUserId: req.user.id, action: "CREATE_MASTER_DATA", entityType: "FinancialYear", entityId: financialYear.id, after: financialYear, requestId: req.id }, req);
         res.status(201).json({ financialYear });
         return;
       } catch (error) {
@@ -52,7 +52,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
     assertOnlyOneActive(store, req.body.isActive);
     const financialYear = { id: newId(), ...req.body, createdBy: req.user.id, updatedBy: req.user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     store.financialYears.push(financialYear);
-    auditService.record({ actorUserId: req.user.id, action: "CREATE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, after: financialYear, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "CREATE_MASTER_DATA", entityType: "FinancialYear", entityId: financialYear.id, after: financialYear, requestId: req.id }, req);
     res.status(201).json({ financialYear });
   }));
 
@@ -73,7 +73,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
         const updated = await FinancialYear.findByIdAndUpdate(req.params.id, { ...req.body, updatedBy: req.user.id }, { new: true, runValidators: true }).lean();
         const before = toApiRecord(existing);
         const financialYear = toApiRecord(updated);
-        auditService.record({ actorUserId: req.user.id, action: financialYear.isActive ? "UPDATE_FINANCIAL_YEAR" : "DEACTIVATE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, before, after: financialYear, requestId: req.id });
+        await auditService.record({ actorUserId: req.user.id, action: financialYear.isActive ? "UPDATE_MASTER_DATA" : "DEACTIVATE_MASTER_DATA", entityType: "FinancialYear", entityId: financialYear.id, before, after: financialYear, requestId: req.id }, req);
         res.json({ financialYear });
         return;
       } catch (error) {
@@ -96,7 +96,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
       throw new HttpError(400, "startDate must be before endDate", "INVALID_FINANCIAL_YEAR_DATES");
     }
     Object.assign(financialYear, req.body, { updatedBy: req.user.id, updatedAt: new Date().toISOString() });
-    auditService.record({ actorUserId: req.user.id, action: financialYear.isActive ? "UPDATE_FINANCIAL_YEAR" : "DEACTIVATE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, before, after: financialYear, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: financialYear.isActive ? "UPDATE_MASTER_DATA" : "DEACTIVATE_MASTER_DATA", entityType: "FinancialYear", entityId: financialYear.id, before, after: financialYear, requestId: req.id }, req);
     res.json({ financialYear });
   }));
 
@@ -112,7 +112,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
         throw new HttpError(409, "Financial year is referenced by operational data", "MASTER_DATA_REFERENCED");
       }
       await FinancialYear.deleteOne({ _id: req.params.id });
-      auditService.record({ actorUserId: req.user.id, action: "DELETE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, before: financialYear, requestId: req.id });
+      await auditService.record({ actorUserId: req.user.id, action: "DELETE_MASTER_DATA", entityType: "FinancialYear", entityId: financialYear.id, before: financialYear, requestId: req.id }, req);
       res.status(204).send();
       return;
     }
@@ -122,7 +122,7 @@ export function createFinancialYearRouter({ store, sessionService, auditService 
       throw new HttpError(409, "Financial year is referenced by operational data", "MASTER_DATA_REFERENCED");
     }
     store.financialYears = store.financialYears.filter((candidate) => candidate.id !== financialYear.id);
-    auditService.record({ actorUserId: req.user.id, action: "DELETE_FINANCIAL_YEAR", entityType: "FinancialYear", entityId: financialYear.id, before: financialYear, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "DELETE_MASTER_DATA", entityType: "FinancialYear", entityId: financialYear.id, before: financialYear, requestId: req.id }, req);
     res.status(204).send();
   }));
 

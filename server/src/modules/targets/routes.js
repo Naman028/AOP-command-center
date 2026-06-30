@@ -67,7 +67,7 @@ export function createTargetRouter({ store, sessionService, auditService }) {
       const refs = await loadMongoRefs(body, true);
       requireScopedPlant(req.user, refs.plant.code);
       const target = await createMongoTarget(body, refs, req.user.id);
-      auditService.record({ actorUserId: req.user.id, action: "CREATE_TARGET", entityType: "Target", entityId: target.id, plantId: refs.plant.code, after: target, requestId: req.id });
+      await auditService.record({ actorUserId: req.user.id, action: "CREATE_TARGET", entityType: "Target", entityId: target.id, plantId: refs.plant.code, after: target, requestId: req.id }, req);
       res.status(201).json({ target });
       return;
     }
@@ -87,7 +87,7 @@ export function createTargetRouter({ store, sessionService, auditService }) {
       updatedAt: new Date().toISOString()
     }, refs);
     store.targets.push(target);
-    auditService.record({ actorUserId: req.user.id, action: "CREATE_TARGET", entityType: "Target", entityId: target.id, plantId: refs.plant.code, after: target, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "CREATE_TARGET", entityType: "Target", entityId: target.id, plantId: refs.plant.code, after: target, requestId: req.id }, req);
     res.status(201).json({ target });
   }));
 
@@ -107,7 +107,7 @@ export function createTargetRouter({ store, sessionService, auditService }) {
       const refs = await loadMongoRefs(body, true);
       requireScopedPlant(req.user, refs.plant.code);
       const updated = await updateMongoTarget(req.params.id, body, refs, req.user.id, existing);
-      auditService.record({ actorUserId: req.user.id, action: "UPDATE_TARGET", entityType: "Target", entityId: updated.id, plantId: refs.plant.code, before: existing, after: updated, requestId: req.id });
+      await auditService.record({ actorUserId: req.user.id, action: "UPDATE_TARGET", entityType: "Target", entityId: updated.id, plantId: refs.plant.code, before: existing, after: updated, requestId: req.id }, req);
       res.json({ target: updated });
       return;
     }
@@ -119,7 +119,7 @@ export function createTargetRouter({ store, sessionService, auditService }) {
     }
     const updated = serializeMemoryTarget({ ...existing, ...body, material: body.material ?? null, updatedBy: req.user.id, updatedAt: new Date().toISOString() }, refs);
     store.targets = store.targets.map((target) => target.id === req.params.id ? updated : target);
-    auditService.record({ actorUserId: req.user.id, action: "UPDATE_TARGET", entityType: "Target", entityId: updated.id, plantId: refs.plant.code, before: existing, after: updated, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "UPDATE_TARGET", entityType: "Target", entityId: updated.id, plantId: refs.plant.code, before: existing, after: updated, requestId: req.id }, req);
     res.json({ target: updated });
   }));
 
@@ -129,14 +129,14 @@ export function createTargetRouter({ store, sessionService, auditService }) {
       const existing = await findMongoTargetForUser(req.user, req.params.id);
       const updated = await Target.findByIdAndUpdate(req.params.id, { isActive: req.body.isActive, updatedBy: req.user.id }, { new: true }).populate(["plant", "financialYear", "material"]).lean();
       const target = serializeMongoTarget(updated);
-      auditService.record({ actorUserId: req.user.id, action, entityType: "Target", entityId: target.id, plantId: target.plant.code, before: existing, after: target, requestId: req.id });
+      await auditService.record({ actorUserId: req.user.id, action, entityType: "Target", entityId: target.id, plantId: target.plant.code, before: existing, after: target, requestId: req.id }, req);
       res.json({ target });
       return;
     }
     const existing = findMemoryTargetForUser(store, req.user, req.params.id);
     const updated = { ...existing, isActive: req.body.isActive, updatedBy: req.user.id, updatedAt: new Date().toISOString() };
     store.targets = store.targets.map((target) => target.id === req.params.id ? updated : target);
-    auditService.record({ actorUserId: req.user.id, action, entityType: "Target", entityId: updated.id, plantId: updated.plant.code, before: existing, after: updated, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action, entityType: "Target", entityId: updated.id, plantId: updated.plant.code, before: existing, after: updated, requestId: req.id }, req);
     res.json({ target: updated });
   }));
 

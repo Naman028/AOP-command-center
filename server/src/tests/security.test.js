@@ -198,6 +198,10 @@ describe("security architecture", () => {
     expect(managerUsers.status).toBe(403);
     const managerAudit = await request(application).get("/api/audit-logs").set("Cookie", manager.cookies);
     expect(managerAudit.status).toBe(403);
+
+    const lead = await login(application, "lead-a@aop.local");
+    const leadAudit = await request(application).get("/api/audit-logs").set("Cookie", lead.cookies);
+    expect(leadAudit.status).toBe(403);
   });
 
   it("enforces server-side plant scope and rejects frontend-supplied unsafe operators", async () => {
@@ -608,6 +612,54 @@ describe("security architecture", () => {
     expect(JSON.stringify(application.locals.store.auditLogs)).not.toContain("Password123!");
   });
 
+  it("exposes read-only sanitized audit logs to admins with safe filters", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+    const staff = await login(application, "staff@aop.local");
+
+    await request(application).get("/api/users").set("Cookie", staff.cookies);
+    await application.locals.store.auditLogs.push({
+      action: "CREATE_TARGET",
+      entityType: "Target",
+      entityId: "sensitive",
+      before: { password: "Password123!", cookie: "csrfToken=secret", url: "mongodb://localhost:27017/secret" },
+      after: { accessToken: "token-value" },
+      requestId: "manual",
+      createdAt: new Date().toISOString()
+    });
+
+    const logs = await request(application)
+      .get("/api/audit-logs?action=CREATE_TARGET&sort=-createdAt&page=1&limit=10")
+      .set("Cookie", admin.cookies);
+    expect(logs.status).toBe(200);
+    expect(logs.body.rows.some((entry) => entry.action === "CREATE_TARGET")).toBe(true);
+    const body = JSON.stringify(logs.body);
+    expect(body).not.toContain("Password123!");
+    expect(body).not.toContain("csrfToken=secret");
+    expect(body).not.toContain("mongodb://");
+    expect(body).not.toContain("token-value");
+
+    const unsafe = await request(application)
+      .get("/api/audit-logs?action[$ne]=LOGIN_SUCCESS")
+      .set("Cookie", admin.cookies);
+    expect(unsafe.status).toBe(400);
+
+    const update = await request(application)
+      .patch("/api/audit-logs/sensitive")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ action: "CHANGED" });
+    expect(update.status).toBe(404);
+
+    const remove = await request(application)
+      .delete("/api/audit-logs/sensitive")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies);
+    expect(remove.status).toBe(404);
+  });
+
   it("supports admin master-data management and read-only access for other roles", async () => {
     const application = app();
     const admin = await login(application, "admin@aop.local");
@@ -656,8 +708,8 @@ describe("security architecture", () => {
     expect(staffRead.status).toBe(200);
     expect(staffRead.body.rows.every((plant) => plant.isActive)).toBe(true);
 
-    expect(application.locals.store.auditLogs.some((entry) => entry.action === "CREATE_PLANT")).toBe(true);
-    expect(application.locals.store.auditLogs.some((entry) => entry.action === "DEACTIVATE_PLANT")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "CREATE_MASTER_DATA" && entry.entityType === "Plant")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "DEACTIVATE_MASTER_DATA" && entry.entityType === "Plant")).toBe(true);
   });
 
   it("enforces master-data duplicate, validation, active, and reference constraints", async () => {

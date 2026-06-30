@@ -11,6 +11,13 @@ const blockedLogKeys = new Set([
   "MONGODB_URI"
 ]);
 
+const blockedLowerKeys = new Set([...blockedLogKeys].map((key) => key.toLowerCase()));
+const sensitiveStringPatterns = [
+  /mongodb(?:\+srv)?:\/\/[^\s"']+/gi,
+  /bearer\s+[a-z0-9._-]+/gi,
+  /eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+/g
+];
+
 export function redactSensitive(value) {
   if (Array.isArray(value)) {
     return value.map((item) => redactSensitive(item));
@@ -19,9 +26,12 @@ export function redactSensitive(value) {
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [
         key,
-        blockedLogKeys.has(key) ? "[REDACTED]" : redactSensitive(child)
+        blockedLowerKeys.has(key.toLowerCase()) ? "[REDACTED]" : redactSensitive(child)
       ])
     );
+  }
+  if (typeof value === "string") {
+    return sensitiveStringPatterns.reduce((current, pattern) => current.replace(pattern, "[REDACTED]"), value);
   }
   return value;
 }

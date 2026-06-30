@@ -30,7 +30,7 @@ export function createMaterialRouter({ store, sessionService, auditService }) {
       try {
         const created = await Material.create({ ...req.body, createdBy: req.user.id, updatedBy: req.user.id });
         const material = toApiRecord(created.toObject());
-        auditService.record({ actorUserId: req.user.id, action: "CREATE_MATERIAL", entityType: "Material", entityId: material.id, after: material, requestId: req.id });
+        await auditService.record({ actorUserId: req.user.id, action: "CREATE_MASTER_DATA", entityType: "Material", entityId: material.id, after: material, requestId: req.id }, req);
         res.status(201).json({ material });
         return;
       } catch (error) {
@@ -45,7 +45,7 @@ export function createMaterialRouter({ store, sessionService, auditService }) {
     }
     const material = { id: newId(), ...req.body, createdBy: req.user.id, updatedBy: req.user.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     store.materials.push(material);
-    auditService.record({ actorUserId: req.user.id, action: "CREATE_MATERIAL", entityType: "Material", entityId: material.id, after: material, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "CREATE_MASTER_DATA", entityType: "Material", entityId: material.id, after: material, requestId: req.id }, req);
     res.status(201).json({ material });
   }));
 
@@ -59,7 +59,7 @@ export function createMaterialRouter({ store, sessionService, auditService }) {
         const updated = await Material.findByIdAndUpdate(req.params.id, { ...req.body, updatedBy: req.user.id }, { new: true, runValidators: true }).lean();
         const before = toApiRecord(existing);
         const material = toApiRecord(updated);
-        auditService.record({ actorUserId: req.user.id, action: material.isActive ? "UPDATE_MATERIAL" : "DEACTIVATE_MATERIAL", entityType: "Material", entityId: material.id, before, after: material, requestId: req.id });
+        await auditService.record({ actorUserId: req.user.id, action: material.isActive ? "UPDATE_MASTER_DATA" : "DEACTIVATE_MASTER_DATA", entityType: "Material", entityId: material.id, before, after: material, requestId: req.id }, req);
         res.json({ material });
         return;
       } catch (error) {
@@ -76,7 +76,7 @@ export function createMaterialRouter({ store, sessionService, auditService }) {
     }
     const before = { ...material };
     Object.assign(material, req.body, { updatedBy: req.user.id, updatedAt: new Date().toISOString() });
-    auditService.record({ actorUserId: req.user.id, action: material.isActive ? "UPDATE_MATERIAL" : "DEACTIVATE_MATERIAL", entityType: "Material", entityId: material.id, before, after: material, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: material.isActive ? "UPDATE_MASTER_DATA" : "DEACTIVATE_MASTER_DATA", entityType: "Material", entityId: material.id, before, after: material, requestId: req.id }, req);
     res.json({ material });
   }));
 
@@ -88,13 +88,13 @@ export function createMaterialRouter({ store, sessionService, auditService }) {
       }
       const material = toApiRecord(existing);
       await Material.deleteOne({ _id: req.params.id });
-      auditService.record({ actorUserId: req.user.id, action: "DELETE_MATERIAL", entityType: "Material", entityId: material.id, before: material, requestId: req.id });
+      await auditService.record({ actorUserId: req.user.id, action: "DELETE_MASTER_DATA", entityType: "Material", entityId: material.id, before: material, requestId: req.id }, req);
       res.status(204).send();
       return;
     }
     const material = findMaterial(store, req.params.id);
     store.materials = store.materials.filter((candidate) => candidate.id !== material.id);
-    auditService.record({ actorUserId: req.user.id, action: "DELETE_MATERIAL", entityType: "Material", entityId: material.id, before: material, requestId: req.id });
+    await auditService.record({ actorUserId: req.user.id, action: "DELETE_MASTER_DATA", entityType: "Material", entityId: material.id, before: material, requestId: req.id }, req);
     res.status(204).send();
   }));
 

@@ -333,7 +333,9 @@ describe("security architecture", () => {
     const macroPath = path.join(fixtureDir, "macro.xlsm");
     const exePath = path.join(fixtureDir, "payload.exe");
     const malformedXlsxPath = path.join(fixtureDir, "malformed.xlsx");
-    await fs.writeFile(csvPath, "plantId,metricType,value\nPLANT-A,output,10\nPLANT-B,output,20\n");
+    const tooManyRowsPath = path.join(fixtureDir, "too-many.csv");
+    await fs.writeFile(csvPath, "plantCode,financialYearLabel,month,metricType,category,materialCode,actualValue,unit,notes\nPLANT-A,2026,7,TURNOVER,TOTAL,,10,USD,\nPLANT-B,2026,7,TURNOVER,TOTAL,,20,USD,\n");
+    await fs.writeFile(tooManyRowsPath, `plantCode,financialYearLabel,month,metricType,category,materialCode,actualValue,unit,notes\n${Array.from({ length: 2001 }, () => "PLANT-A,2026,7,TURNOVER,TOTAL,,10,USD,").join("\n")}`);
     await fs.writeFile(macroPath, "macro");
     await fs.writeFile(exePath, "MZ");
     await fs.writeFile(malformedXlsxPath, "not-a-zip");
@@ -372,14 +374,12 @@ describe("security architecture", () => {
       .attach("file", csvPath);
     expect(oversized.status).toBe(413);
 
-    const tooManyRowsApp = app({ IMPORT_MAX_ROWS: "1" });
-    const tooManyRowsAuth = await login(tooManyRowsApp, "manager@aop.local");
-    const tooManyRows = await request(tooManyRowsApp)
+    const tooManyRows = await request(application)
       .post("/api/imports/preview")
       .set("Origin", "http://localhost:5173")
-      .set("X-CSRF-Token", tooManyRowsAuth.csrf)
-      .set("Cookie", tooManyRowsAuth.cookies)
-      .attach("file", csvPath);
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .attach("file", tooManyRowsPath);
     expect(tooManyRows.status).toBe(400);
 
     const lead = await login(application, "lead-a@aop.local");
@@ -390,16 +390,14 @@ describe("security architecture", () => {
       .set("Cookie", lead.cookies)
       .attach("file", csvPath);
     expect(preview.status).toBe(201);
-    expect(preview.body.preview[1].errors).toContain("plant is outside assigned scope");
+    expect(preview.body.rows.errors[0].errors).toContain("plant is outside assigned scope");
 
-    const batch = application.locals.store.importBatches.find((candidate) => candidate.id === preview.body.batchId);
-    expect(batch.tempPath).toBeNull();
     const confirm = await request(application)
-      .post(`/api/imports/${preview.body.batchId}/confirm`)
+      .post(`/api/imports/${preview.body.batch.id}/confirm`)
       .set("Origin", "http://localhost:5173")
       .set("X-CSRF-Token", lead.csrf)
       .set("Cookie", lead.cookies);
-    expect(confirm.status).toBe(403);
+    expect(confirm.status).toBe(400);
     await fs.rm(fixtureDir, { recursive: true, force: true });
   });
 
@@ -788,6 +786,68 @@ describe("security architecture", () => {
     expect(application.locals.store.auditLogs.some((entry) => entry.action === "DEACTIVATE_ACTUAL")).toBe(true);
     expect(application.locals.store.auditLogs.some((entry) => entry.action === "REACTIVATE_ACTUAL")).toBe(true);
     expect(JSON.stringify(application.locals.store.auditLogs)).not.toContain("Password123!");
+  });
+
+  it("supports Phase 5 import preview, history authorization, and transaction fail-closed confirmation", async () => {
+    const application = app();
+    const manager = await login(application, "manager@aop.local");
+    const staff = await login(application, "staff@aop.local");
+    const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), "aop-phase5-"));
+    const validCsv = path.join(fixtureDir, "valid.csv");
+    const badHeadersCsv = path.join(fixtureDir, "bad-headers.csv");
+    await fs.writeFile(validCsv, "plantCode,financialYearLabel,month,metricType,category,materialCode,actualValue,unit,notes\nPLANT-A,2026,8,TURNOVER,TOTAL,,42,USD,\n");
+    await fs.writeFile(badHeadersCsv, "plantId,source,createdBy\nPLANT-A,EXCEL_IMPORT,attacker\n");
+
+    const staffPreview = await request(application)
+      .post("/api/imports/preview")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", staff.csrf)
+      .set("Cookie", staff.cookies);
+    expect(staffPreview.status).toBe(403);
+
+    const badHeaders = await request(application)
+      .post("/api/imports/preview")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .attach("file", badHeadersCsv);
+    expect(badHeaders.status).toBe(400);
+
+    const beforeActuals = application.locals.store.actuals.length;
+    const preview = await request(application)
+      .post("/api/imports/preview")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .attach("file", validCsv);
+    expect(preview.status).toBe(201);
+    expect(preview.body.batch.validRows).toBe(1);
+    expect(preview.body.batch.invalidRows).toBe(0);
+    expect(application.locals.store.actuals).toHaveLength(beforeActuals);
+
+    const history = await request(application)
+      .get("/api/imports/history")
+      .set("Cookie", manager.cookies);
+    expect(history.status).toBe(200);
+    expect(history.body.rows.some((batch) => batch.id === preview.body.batch.id)).toBe(true);
+
+    const staffHistory = await request(application)
+      .get("/api/imports/history")
+      .set("Cookie", staff.cookies);
+    expect(staffHistory.status).toBe(403);
+
+    const confirm = await request(application)
+      .post(`/api/imports/${preview.body.batch.id}/confirm`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies);
+    expect(confirm.status).toBe(409);
+    expect(confirm.body.error.code).toBe("TRANSACTIONAL_IMPORT_REQUIRED");
+    expect(application.locals.store.actuals).toHaveLength(beforeActuals);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "IMPORT_PREVIEW")).toBe(true);
+    expect(application.locals.store.auditLogs.some((entry) => entry.action === "IMPORT_REJECTED")).toBe(true);
+    expect(JSON.stringify(preview.body)).not.toContain("EXCEL_IMPORT,attacker");
+    await fs.rm(fixtureDir, { recursive: true, force: true });
   });
 
   it("exposes read-only sanitized audit logs to admins with safe filters", async () => {

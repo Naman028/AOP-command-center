@@ -45,6 +45,21 @@ a {
   border-radius: 8px;
 }
 
+.upload-panel {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px dashed #9daf9f;
+  background: #ffffff;
+}
+
+.upload-panel label {
+  display: grid;
+  gap: 6px;
+}
+
 .login-panel label {
   display: grid;
   gap: 6px;

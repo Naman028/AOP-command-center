@@ -5,6 +5,7 @@ import { loadConfig } from "./config/env.js";
 import { Actual } from "./models/Actual.js";
 import { AuditLog } from "./models/AuditLog.js";
 import { FinancialYear } from "./models/FinancialYear.js";
+import { ImportBatch } from "./models/ImportBatch.js";
 import { Material } from "./models/Material.js";
 import { Plant } from "./models/Plant.js";
 import { Target } from "./models/Target.js";
@@ -18,6 +19,7 @@ export async function syncMasterDataIndexes() {
     FinancialYear.syncIndexes(),
     Target.syncIndexes(),
     Actual.syncIndexes(),
+    ImportBatch.syncIndexes(),
     AuditLog.syncIndexes()
   ]);
 }

@@ -20,6 +20,7 @@ export function AppLayout() {
           {can("TARGETS_VIEW") && <Link to="/planning/earnings">Earnings</Link>}
           {can("ACTUALS_VIEW") && <Link to="/actuals/manual-entry">Manual Actuals</Link>}
           {can("IMPORTS_MANAGE") && <Link to="/actuals/file-drop">File Drop</Link>}
+          {can("IMPORTS_MANAGE") && <Link to="/actuals/import-history">Import History</Link>}
           {can("REPORTS_VIEW") && <Link to="/reports">Reports</Link>}
           {can("USERS_MANAGE") && <Link to="/admin/users">Users</Link>}
           {can("AUDIT_LOGS_VIEW") && <Link to="/admin/audit-logs">Audit</Link>}

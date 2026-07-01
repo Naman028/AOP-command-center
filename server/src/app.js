@@ -32,6 +32,7 @@ import { createMaterialRouter } from "./modules/materials/routes.js";
 import { createPlantRouter } from "./modules/plants/routes.js";
 import { createTargetRouter } from "./modules/targets/routes.js";
 import { createActualRouter } from "./modules/actuals/routes.js";
+import { createImportRouter } from "./modules/imports/routes.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 import { HttpError, forbidden } from "./utils/httpError.js";
 import { escapeFormulaValue } from "./utils/sanitize.js";
@@ -260,6 +261,7 @@ export function createApp(options = {}) {
   app.use("/api/master-data/financial-years", createFinancialYearRouter({ store, sessionService, auditService }));
   app.use("/api/targets", createTargetRouter({ store, sessionService, auditService }));
   app.use("/api/actuals", createActualRouter({ store, sessionService, auditService }));
+  app.use("/api/imports", createImportRouter({ store, sessionService, auditService, config }));
 
   app.post(
     "/api/auth/login",

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import mongoose from "mongoose";
 import request from "supertest";
 import { createApp } from "../server/src/app.js";
@@ -207,6 +210,36 @@ async function run() {
   assert.equal(auditLogs.status, 200, auditLogs.text);
   assert.ok(auditLogs.body.rows.some((row) => row.action === "CREATE_TARGET"), "Target audit record did not persist after backend restart");
   process.stdout.write("✓ Audit records persist after restart\n");
+
+  const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), "aop-gate-import-"));
+  const importPath = path.join(fixtureDir, "actual-import.csv");
+  await fs.writeFile(importPath, `plantCode,financialYearLabel,month,metricType,category,materialCode,actualValue,unit,notes\n${code},${financialYear.label},3,TURNOVER,${code},,5,USD,gate\n`);
+  const importPreview = await request(gate.app)
+    .post("/api/imports/preview")
+    .set("Origin", origin)
+    .set("X-CSRF-Token", restartedAuth.csrf)
+    .set("Cookie", restartedAuth.cookies)
+    .attach("file", importPath);
+
+  assert.equal(importPreview.status, 201, importPreview.text);
+  assert.equal(importPreview.body.batch.validRows, 1);
+  process.stdout.write("✓ Import preview creates a staged batch\n");
+
+  const importConfirm = await request(gate.app)
+    .post(`/api/imports/${importPreview.body.batch.id}/confirm`)
+    .set("Origin", origin)
+    .set("X-CSRF-Token", restartedAuth.csrf)
+    .set("Cookie", restartedAuth.cookies);
+
+  if (importPreview.body.transactionAvailable) {
+    assert.equal(importConfirm.status, 200, importConfirm.text);
+    process.stdout.write("✓ Transaction-capable import confirmation succeeds\n");
+  } else {
+    assert.equal(importConfirm.status, 409, importConfirm.text);
+    assert.equal(importConfirm.body.error.code, "TRANSACTIONAL_IMPORT_REQUIRED");
+    process.stdout.write("✓ Transaction-unavailable import confirmation fails closed\n");
+  }
+  await fs.rm(fixtureDir, { recursive: true, force: true });
 
   await verifyIndexes();
   process.stdout.write("✓ Master-data indexes exist in MongoDB\n");

@@ -314,7 +314,7 @@ async function run() {
     .set("Cookie", restartedAuth.cookies);
   assert.equal(dashboard.status, 200, dashboard.text);
   assert.ok(dashboard.body.dashboard.totals.rowCount >= 12, "Dashboard did not return persisted report data");
-  process.stdout.write("âœ“ Dashboard returns persisted target and actual data\n");
+  process.stdout.write("[PASS] Dashboard returns persisted target and actual data\n");
 
   const targetData = await request(gate.app)
     .get(`/api/reports/target-data?${reportQuery}`)
@@ -329,19 +329,19 @@ async function run() {
   assert.equal(byCategory.get(`${code}-EXP-CRIT`).performanceStatus, "CRITICAL");
   assert.equal(byCategory.get(`${code}-EARN-ON`).performanceStatus, "ON_TRACK");
   assert.equal(byCategory.get(`${code}-CONS-ON`).performanceStatus, "ON_TRACK");
-  process.stdout.write("âœ“ Variance and attainment are correct\n");
-  process.stdout.write("âœ“ ON_TRACK / WARNING / CRITICAL rules are correct\n");
+  process.stdout.write("[PASS] Variance and attainment are correct\n");
+  process.stdout.write("[PASS] ON_TRACK / WARNING / CRITICAL rules are correct\n");
   assert.equal(byCategory.get(`${code}-ZERO-ACTUAL`).actualValue, 0);
   assert.equal(byCategory.get(`${code}-ZERO-ACTUAL`).dataStatus, "MATCHED");
   assert.equal(byCategory.get(`${code}-MISSING-ACTUAL`).actualValue, null);
   assert.equal(byCategory.get(`${code}-MISSING-ACTUAL`).dataStatus, "MISSING_ACTUAL");
-  process.stdout.write("âœ“ Zero actual is different from missing actual\n");
+  process.stdout.write("[PASS] Zero actual is different from missing actual\n");
   assert.equal(byCategory.get(`${code}-ZERO-TARGET`).dataStatus, "ZERO_TARGET");
   assert.equal(byCategory.get(`${code}-ZERO-TARGET`).performanceStatus, null);
   assert.equal(byCategory.get(`${code}-UNIT-MISMATCH`).dataStatus, "UNIT_MISMATCH");
   assert.equal(byCategory.get(`${code}-UNIT-MISMATCH`).variance, null);
   assert.equal(byCategory.get(`${code}-UNIT-MISMATCH`).attainmentPct, null);
-  process.stdout.write("âœ“ Unit mismatch returns no variance or attainment\n");
+  process.stdout.write("[PASS] Unit mismatch returns no variance or attainment\n");
 
   const leadAuth = await login(gate.app, "lead-a@aop.local");
   const leadReport = await request(gate.app)
@@ -349,8 +349,8 @@ async function run() {
     .set("Cookie", leadAuth.cookies);
   assert.equal(leadReport.status, 200, leadReport.text);
   assert.ok(leadReport.body.rows.every((row) => row.plant.code !== "PLANT-B"), "Team Lead A received Plant B report data");
-  process.stdout.write("âœ“ Team Lead A cannot receive Plant B report data\n");
-  process.stdout.write("âœ“ Dashboard/report API response survives backend restart\n");
+  process.stdout.write("[PASS] Team Lead A cannot receive Plant B report data\n");
+  process.stdout.write("[PASS] Dashboard/report API response survives backend restart\n");
 
   const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), "aop-gate-import-"));
   const importPath = path.join(fixtureDir, "actual-import.csv");
@@ -390,7 +390,7 @@ async function run() {
   const explainText = JSON.stringify(reportExplain);
   assert.ok(explainText.includes("IXSCAN"), "Report target query did not use an index scan");
   assert.ok(explainText.includes("financialYear_1_plant_1_isActive_1_metricType_1_month_1"), "Report target query did not use the report index");
-  process.stdout.write("âœ“ Report query explain uses the report index\n");
+  process.stdout.write("[PASS] Report query explain uses the report index\n");
 
   await verifyIndexes();
   process.stdout.write("✓ Master-data indexes exist in MongoDB\n");

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { PERMISSIONS } from "../../constants/permissions.js";
 import { authenticate, requirePermission, serverPlantFilter } from "../../middleware/auth.js";
 import { validateObjectIdParam, validateSchema } from "../../middleware/validate.js";
+import { Actual } from "../../models/Actual.js";
 import { FinancialYear } from "../../models/FinancialYear.js";
 import { Material } from "../../models/Material.js";
 import { Plant } from "../../models/Plant.js";
@@ -36,7 +37,7 @@ const targetBodySchema = z.object({
   metricType: z.enum(metricTypes),
   category: z.string().trim().min(1).max(80).optional().default("TOTAL").transform(normalizeCategory),
   material: z.string().nullable().optional(),
-  plannedValue: z.number().positive(),
+  plannedValue: z.number().nonnegative(),
   unit: z.string().trim().min(1).max(24),
   notes: z.string().trim().max(500).optional().default("")
 }).strict();
@@ -66,6 +67,7 @@ export function createTargetRouter({ store, sessionService, auditService }) {
     if (store.useMongo) {
       const refs = await loadMongoRefs(body, true);
       requireScopedPlant(req.user, refs.plant.code);
+      await rejectMongoUnitMismatch(body, "target");
       const target = await createMongoTarget(body, refs, req.user.id);
       await auditService.record({ actorUserId: req.user.id, action: "CREATE_TARGET", entityType: "Target", entityId: target.id, plantId: refs.plant.code, after: target, requestId: req.id }, req);
       res.status(201).json({ target });
@@ -73,6 +75,7 @@ export function createTargetRouter({ store, sessionService, auditService }) {
     }
     const refs = loadMemoryRefs(store, body, true);
     requireScopedPlant(req.user, refs.plant.code);
+    rejectMemoryUnitMismatch(store.actuals, body, "target");
     if (hasMemoryDuplicate(store, body)) {
       throw duplicateTarget();
     }
@@ -106,6 +109,7 @@ export function createTargetRouter({ store, sessionService, auditService }) {
       const existing = await findMongoTargetForUser(req.user, req.params.id);
       const refs = await loadMongoRefs(body, true);
       requireScopedPlant(req.user, refs.plant.code);
+      await rejectMongoUnitMismatch(body, "target");
       const updated = await updateMongoTarget(req.params.id, body, refs, req.user.id, existing);
       await auditService.record({ actorUserId: req.user.id, action: "UPDATE_TARGET", entityType: "Target", entityId: updated.id, plantId: refs.plant.code, before: existing, after: updated, requestId: req.id }, req);
       res.json({ target: updated });
@@ -114,6 +118,7 @@ export function createTargetRouter({ store, sessionService, auditService }) {
     const existing = findMemoryTargetForUser(store, req.user, req.params.id);
     const refs = loadMemoryRefs(store, body, true);
     requireScopedPlant(req.user, refs.plant.code);
+    rejectMemoryUnitMismatch(store.actuals, body, "target");
     if (hasMemoryDuplicate(store, body, req.params.id)) {
       throw duplicateTarget();
     }
@@ -304,6 +309,34 @@ function hasMemoryDuplicate(store, body, excludeId) {
     && target.metricType === body.metricType
     && target.category === body.category
     && (target.material?.id ?? null) === (body.material ?? null));
+}
+
+async function rejectMongoUnitMismatch(body) {
+  const counterpart = await Actual.findOne({
+    plant: body.plant,
+    financialYear: body.financialYear,
+    month: body.month,
+    metricType: body.metricType,
+    category: body.category,
+    material: body.material ?? null,
+    isActive: true
+  }).lean();
+  if (counterpart && counterpart.unit !== body.unit) {
+    throw new HttpError(400, "Target unit conflicts with existing actual unit", "UNIT_MISMATCH");
+  }
+}
+
+function rejectMemoryUnitMismatch(actuals, body) {
+  const counterpart = actuals.find((actual) => actual.isActive
+    && actual.plant?.id === body.plant
+    && actual.financialYear?.id === body.financialYear
+    && actual.month === body.month
+    && actual.metricType === body.metricType
+    && actual.category === body.category
+    && (actual.material?.id ?? null) === (body.material ?? null));
+  if (counterpart && counterpart.unit !== body.unit) {
+    throw new HttpError(400, "Target unit conflicts with existing actual unit", "UNIT_MISMATCH");
+  }
 }
 
 function serializeMongoTarget(target, refs = {}) {

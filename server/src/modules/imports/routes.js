@@ -17,6 +17,7 @@ import { FinancialYear } from "../../models/FinancialYear.js";
 import { ImportBatch } from "../../models/ImportBatch.js";
 import { Material } from "../../models/Material.js";
 import { Plant } from "../../models/Plant.js";
+import { Target } from "../../models/Target.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { forbidden, HttpError } from "../../utils/httpError.js";
 import { containsUnsafeMongoOperator } from "../../utils/sanitize.js";
@@ -235,13 +236,14 @@ function validateHeaders(rows) {
 }
 
 async function validateMongoRows(rows, user) {
-  const [plants, years, materials, actuals] = await Promise.all([
+  const [plants, years, materials, actuals, targets] = await Promise.all([
     Plant.find({ isActive: true }).lean(),
     FinancialYear.find({ isActive: true }).lean(),
     Material.find({ isActive: true }).lean(),
-    Actual.find({ isActive: true }).lean()
+    Actual.find({ isActive: true }).lean(),
+    Target.find({ isActive: true }).lean()
   ]);
-  return validateRows(rows, user, { plants: plants.map(apiMaster), years: years.map(apiMaster), materials: materials.map(apiMaster), actuals: actuals.map(apiActual) });
+  return validateRows(rows, user, { plants: plants.map(apiMaster), years: years.map(apiMaster), materials: materials.map(apiMaster), actuals: actuals.map(apiActual), targets: targets.map(apiTarget) });
 }
 
 function validateMemoryRows(store, rows, user) {
@@ -249,7 +251,8 @@ function validateMemoryRows(store, rows, user) {
     plants: store.plants.filter((row) => row.isActive),
     years: store.financialYears.filter((row) => row.isActive),
     materials: store.materials.filter((row) => row.isActive),
-    actuals: store.actuals.filter((row) => row.isActive)
+    actuals: store.actuals.filter((row) => row.isActive),
+    targets: store.targets.filter((row) => row.isActive)
   });
 }
 
@@ -273,13 +276,14 @@ function validateRows(rows, user, refs) {
     if (!year) errors.push("financial year is inactive or unknown");
     if (!metricTypes.includes(normalized.metricType)) errors.push("metricType is invalid");
     if (!Number.isInteger(normalized.month) || normalized.month < 1 || normalized.month > 12) errors.push("month is invalid");
-    if (!(normalized.actualValue > 0)) errors.push("actualValue must be positive");
+    if (!(normalized.actualValue >= 0)) errors.push("actualValue must be nonnegative");
     if (!normalized.unit) errors.push("unit is required");
     if (normalized.metricType === "CONSUMPTION" && !material) errors.push("material is required for consumption");
     if (normalized.metricType !== "CONSUMPTION" && normalized.materialCode) errors.push("material is only allowed for consumption");
     const key = plant && year ? duplicateKey({ ...normalized, plant: plant.id, financialYear: year.id, material: material?.id ?? null }) : null;
     if (key && seen.has(key)) errors.push("duplicate row in file");
     if (key && refs.actuals.some((actual) => duplicateKey(actual) === key)) errors.push("actual already exists");
+    if (key && refs.targets.some((target) => duplicateKey(target) === key && target.unit !== normalized.unit)) errors.push("actual unit conflicts with existing target unit");
     if (key) seen.add(key);
     if (errors.length) {
       validationErrors.push({ rowNumber, errors });
@@ -387,7 +391,11 @@ function apiMaster(row) {
 }
 
 function apiActual(row) {
-  return { plant: String(row.plant?.id ?? row.plant), financialYear: String(row.financialYear?.id ?? row.financialYear), month: row.month, metricType: row.metricType, category: row.category, material: row.material ? String(row.material?.id ?? row.material) : null };
+  return { plant: String(row.plant?.id ?? row.plant), financialYear: String(row.financialYear?.id ?? row.financialYear), month: row.month, metricType: row.metricType, category: row.category, material: row.material ? String(row.material?.id ?? row.material) : null, unit: row.unit };
+}
+
+function apiTarget(row) {
+  return { plant: String(row.plant?.id ?? row.plant), financialYear: String(row.financialYear?.id ?? row.financialYear), month: row.month, metricType: row.metricType, category: row.category, material: row.material ? String(row.material?.id ?? row.material) : null, unit: row.unit };
 }
 
 function serializeBatch(batch) {

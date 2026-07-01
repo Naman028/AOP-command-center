@@ -33,6 +33,7 @@ import { createPlantRouter } from "./modules/plants/routes.js";
 import { createTargetRouter } from "./modules/targets/routes.js";
 import { createActualRouter } from "./modules/actuals/routes.js";
 import { createImportRouter } from "./modules/imports/routes.js";
+import { createReportingRouter } from "./modules/reports/routes.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 import { HttpError, forbidden } from "./utils/httpError.js";
 import { escapeFormulaValue } from "./utils/sanitize.js";
@@ -317,6 +318,8 @@ export function createApp(options = {}) {
   app.get("/api/auth/me", authenticate(sessionService), sensitiveNoStore, (req, res) => {
     res.json({ user: req.user });
   });
+
+  app.use("/api", createReportingRouter({ store, sessionService }));
 
   app.get(
     "/api/dashboard",

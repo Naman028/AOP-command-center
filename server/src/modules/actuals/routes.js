@@ -9,6 +9,7 @@ import { Actual } from "../../models/Actual.js";
 import { FinancialYear } from "../../models/FinancialYear.js";
 import { Material } from "../../models/Material.js";
 import { Plant } from "../../models/Plant.js";
+import { Target } from "../../models/Target.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { forbidden, HttpError } from "../../utils/httpError.js";
 import { isDuplicateKeyError, listRecords, requireObjectId, toApiRecord } from "../masterData/common.js";
@@ -36,7 +37,7 @@ const actualBodySchema = z.object({
   metricType: z.enum(metricTypes),
   category: z.string().trim().min(1).max(80).optional().default("TOTAL").transform(normalizeCategory),
   material: z.string().nullable().optional(),
-  actualValue: z.number().positive(),
+  actualValue: z.number().nonnegative(),
   unit: z.string().trim().min(1).max(24),
   source: z.enum(["MANUAL"]).optional().default("MANUAL"),
   notes: z.string().trim().max(500).optional().default("")
@@ -66,6 +67,7 @@ export function createActualRouter({ store, sessionService, auditService }) {
     if (store.useMongo) {
       const refs = await loadMongoRefs(body, true);
       requireScopedPlant(req.user, refs.plant.code);
+      await rejectMongoUnitMismatch(body);
       const actual = await createMongoActual(body, refs, req.user.id);
       await auditService.record({ actorUserId: req.user.id, action: "CREATE_ACTUAL", entityType: "Actual", entityId: actual.id, plantId: refs.plant.code, after: actual, requestId: req.id }, req);
       res.status(201).json({ actual });
@@ -73,6 +75,7 @@ export function createActualRouter({ store, sessionService, auditService }) {
     }
     const refs = loadMemoryRefs(store, body, true);
     requireScopedPlant(req.user, refs.plant.code);
+    rejectMemoryUnitMismatch(store.targets, body);
     if (hasMemoryDuplicate(store, body)) {
       throw duplicateActual();
     }
@@ -105,6 +108,7 @@ export function createActualRouter({ store, sessionService, auditService }) {
       const existing = await findMongoActualForUser(req.user, req.params.id);
       const refs = await loadMongoRefs(body, true);
       requireScopedPlant(req.user, refs.plant.code);
+      await rejectMongoUnitMismatch(body);
       const updated = await updateMongoActual(req.params.id, body, refs, req.user.id);
       await auditService.record({ actorUserId: req.user.id, action: "UPDATE_ACTUAL", entityType: "Actual", entityId: updated.id, plantId: refs.plant.code, before: existing, after: updated, requestId: req.id }, req);
       res.json({ actual: updated });
@@ -113,6 +117,7 @@ export function createActualRouter({ store, sessionService, auditService }) {
     const existing = findMemoryActualForUser(store, req.user, req.params.id);
     const refs = loadMemoryRefs(store, body, true);
     requireScopedPlant(req.user, refs.plant.code);
+    rejectMemoryUnitMismatch(store.targets, body);
     if (hasMemoryDuplicate(store, body, req.params.id)) {
       throw duplicateActual();
     }
@@ -306,6 +311,34 @@ function hasMemoryDuplicate(store, body, excludeId) {
     && actual.metricType === body.metricType
     && actual.category === body.category
     && (actual.material?.id ?? null) === (body.material ?? null));
+}
+
+async function rejectMongoUnitMismatch(body) {
+  const counterpart = await Target.findOne({
+    plant: body.plant,
+    financialYear: body.financialYear,
+    month: body.month,
+    metricType: body.metricType,
+    category: body.category,
+    material: body.material ?? null,
+    isActive: true
+  }).lean();
+  if (counterpart && counterpart.unit !== body.unit) {
+    throw new HttpError(400, "Actual unit conflicts with existing target unit", "UNIT_MISMATCH");
+  }
+}
+
+function rejectMemoryUnitMismatch(targets, body) {
+  const counterpart = targets.find((target) => target.isActive
+    && target.plant?.id === body.plant
+    && target.financialYear?.id === body.financialYear
+    && target.month === body.month
+    && target.metricType === body.metricType
+    && target.category === body.category
+    && (target.material?.id ?? null) === (body.material ?? null));
+  if (counterpart && counterpart.unit !== body.unit) {
+    throw new HttpError(400, "Actual unit conflicts with existing target unit", "UNIT_MISMATCH");
+  }
 }
 
 function serializeMongoActual(actual, refs = {}) {

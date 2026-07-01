@@ -238,6 +238,29 @@ th {
   background: #fee2e2;
 }
 
+.badge.warning {
+  color: #713f12;
+  background: #fef3c7;
+}
+
+.status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.status-strip span {
+  padding: 8px 10px;
+  border: 1px solid #dce5df;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.report-section {
+  margin-top: 24px;
+}
+
 .state-text {
   color: #53655b;
 }

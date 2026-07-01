@@ -223,17 +223,15 @@ describe("security architecture", () => {
     const application = app();
     const lead = await login(application, "lead-a@aop.local");
 
-    const report = await request(application).get("/api/reports/summary").set("Cookie", lead.cookies);
+    const report = await request(application).get("/api/reports/target-data?financialYear=300000000000000000000001").set("Cookie", lead.cookies);
     expect(report.status).toBe(200);
     expect(report.body.rows.every((row) => row.plant.code === "PLANT-A")).toBe(true);
-    expect(report.body.actuals.every((row) => row.plant.code === "PLANT-A")).toBe(true);
 
     const plantBReport = await request(application)
-      .get("/api/reports/summary?plantId=PLANT-B")
+      .get("/api/reports/target-data?financialYear=300000000000000000000001&plant=100000000000000000000002")
       .set("Cookie", lead.cookies);
     expect(plantBReport.status).toBe(200);
     expect(plantBReport.body.rows).toHaveLength(0);
-    expect(plantBReport.body.actuals).toHaveLength(0);
 
     const forbiddenPlant = await request(application)
       .post("/api/targets")
@@ -321,7 +319,7 @@ describe("security architecture", () => {
       .send({ role: "STAFF" });
     expect(userPatchWithoutCsrf.status).toBe(403);
 
-    const report = await request(application).get("/api/reports/summary").set("Cookie", manager.cookies);
+    const report = await request(application).get("/api/reports/summary?financialYear=300000000000000000000001").set("Cookie", manager.cookies);
     expect(report.headers["cache-control"]).toBe("no-store");
   });
 
@@ -493,14 +491,24 @@ describe("security architecture", () => {
     expect(invalidValue.status).toBe(400);
 
     const invalidSort = await request(application)
-      .get("/api/reports/summary?sort=passwordHash")
+      .get("/api/reports/summary?financialYear=300000000000000000000001&sort=passwordHash")
       .set("Cookie", manager.cookies);
     expect(invalidSort.status).toBe(400);
 
     const invalidPagination = await request(application)
-      .get("/api/reports/summary?page=0&limit=1000")
+      .get("/api/reports/summary?financialYear=300000000000000000000001&page=0&limit=1000")
       .set("Cookie", manager.cookies);
     expect(invalidPagination.status).toBe(400);
+
+    const missingFinancialYear = await request(application)
+      .get("/api/reports/target-data")
+      .set("Cookie", manager.cookies);
+    expect(missingFinancialYear.status).toBe(400);
+
+    const invalidReportObjectId = await request(application)
+      .get("/api/reports/target-data?financialYear=not-an-id")
+      .set("Cookie", manager.cookies);
+    expect(invalidReportObjectId.status).toBe(400);
 
     const invalidTargetSort = await request(application)
       .get("/api/targets?sort=passwordHash")
@@ -848,6 +856,141 @@ describe("security architecture", () => {
     expect(application.locals.store.auditLogs.some((entry) => entry.action === "IMPORT_REJECTED")).toBe(true);
     expect(JSON.stringify(preview.body)).not.toContain("EXCEL_IMPORT,attacker");
     await fs.rm(fixtureDir, { recursive: true, force: true });
+  });
+
+  it("calculates Phase 6 reports with status rules and backend plant scope", async () => {
+    const application = app();
+    const manager = await login(application, "manager@aop.local");
+    const staff = await login(application, "staff@aop.local");
+    const plantA = application.locals.store.plants[0];
+    const year = application.locals.store.financialYears[0];
+    const material = application.locals.store.materials[0];
+    const adminId = application.locals.store.users[0].id;
+    const base = {
+      plant: plantA,
+      financialYear: year,
+      metricType: "TURNOVER",
+      category: "TOTAL",
+      material: null,
+      notes: "",
+      isActive: true,
+      createdBy: adminId,
+      updatedBy: adminId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    application.locals.store.targets.push(
+      { ...base, id: "400000000000000000000101", month: 2, plannedValue: 0, unit: "USD" },
+      { ...base, id: "400000000000000000000102", month: 3, plannedValue: 50, unit: "USD" },
+      { ...base, id: "400000000000000000000103", month: 4, plannedValue: 75, unit: "USD" },
+      { ...base, id: "400000000000000000000104", month: 6, category: "TURNON", plannedValue: 100, unit: "USD" },
+      { ...base, id: "400000000000000000000105", month: 7, category: "TURNWARN", plannedValue: 100, unit: "USD" },
+      { ...base, id: "400000000000000000000106", month: 8, category: "TURNCRIT", plannedValue: 100, unit: "USD" },
+      { ...base, id: "400000000000000000000107", month: 6, metricType: "EXPENSE", category: "EXPON", plannedValue: 100, unit: "USD" },
+      { ...base, id: "400000000000000000000108", month: 7, metricType: "EXPENSE", category: "EXPWARN", plannedValue: 100, unit: "USD" },
+      { ...base, id: "400000000000000000000109", month: 8, metricType: "EXPENSE", category: "EXPCRIT", plannedValue: 100, unit: "USD" },
+      { ...base, id: "400000000000000000000110", month: 6, metricType: "EARNINGS", category: "EARNON", plannedValue: 100, unit: "USD" },
+      { ...base, id: "400000000000000000000111", month: 6, metricType: "CONSUMPTION", category: "CONSON", material, plannedValue: 100, unit: "EA" }
+    );
+    application.locals.store.actuals.push(
+      { ...base, id: "500000000000000000000101", month: 2, actualValue: 10, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000102", month: 3, actualValue: 40, unit: "EUR", source: "MANUAL" },
+      { ...base, id: "500000000000000000000103", month: 5, actualValue: 60, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000104", month: 6, category: "TURNON", actualValue: 105, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000105", month: 7, category: "TURNWARN", actualValue: 95, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000106", month: 8, category: "TURNCRIT", actualValue: 80, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000107", month: 6, metricType: "EXPENSE", category: "EXPON", actualValue: 90, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000108", month: 7, metricType: "EXPENSE", category: "EXPWARN", actualValue: 105, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000109", month: 8, metricType: "EXPENSE", category: "EXPCRIT", actualValue: 111, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000110", month: 6, metricType: "EARNINGS", category: "EARNON", actualValue: 100, unit: "USD", source: "MANUAL" },
+      { ...base, id: "500000000000000000000111", month: 6, metricType: "CONSUMPTION", category: "CONSON", material, actualValue: 90, unit: "EA", source: "MANUAL" }
+    );
+
+    const targetData = await request(application)
+      .get("/api/reports/target-data?financialYear=300000000000000000000001&limit=100")
+      .set("Cookie", manager.cookies);
+    expect(targetData.status).toBe(200);
+    const dataStatuses = targetData.body.rows.map((row) => row.dataStatus);
+    expect(dataStatuses).toContain("MATCHED");
+    expect(dataStatuses).toContain("ZERO_TARGET");
+    expect(dataStatuses).toContain("UNIT_MISMATCH");
+    expect(dataStatuses).toContain("MISSING_ACTUAL");
+    expect(dataStatuses).toContain("MISSING_TARGET");
+    const performanceStatuses = targetData.body.rows.map((row) => row.performanceStatus);
+    expect(performanceStatuses).toContain("ON_TRACK");
+    expect(performanceStatuses).toContain("WARNING");
+    expect(performanceStatuses).toContain("CRITICAL");
+    const zeroTarget = targetData.body.rows.find((row) => row.dataStatus === "ZERO_TARGET");
+    expect(zeroTarget.attainmentPct).toBeNull();
+    expect(zeroTarget.variance).toBe(10);
+    expect(zeroTarget.performanceStatus).toBeNull();
+    const unitMismatch = targetData.body.rows.find((row) => row.dataStatus === "UNIT_MISMATCH");
+    expect(unitMismatch.variance).toBeNull();
+    expect(unitMismatch.attainmentPct).toBeNull();
+    expect(unitMismatch.performanceStatus).toBeNull();
+    expect(targetData.body.rows.find((row) => row.category === "TURNON")).toMatchObject({ dataStatus: "MATCHED", performanceStatus: "ON_TRACK", attainmentPct: 105 });
+    expect(targetData.body.rows.find((row) => row.category === "TURNWARN")).toMatchObject({ dataStatus: "MATCHED", performanceStatus: "WARNING", attainmentPct: 95 });
+    expect(targetData.body.rows.find((row) => row.category === "TURNCRIT")).toMatchObject({ dataStatus: "MATCHED", performanceStatus: "CRITICAL", attainmentPct: 80 });
+    expect(targetData.body.rows.find((row) => row.category === "EXPON")).toMatchObject({ dataStatus: "MATCHED", performanceStatus: "ON_TRACK" });
+    expect(targetData.body.rows.find((row) => row.category === "EXPWARN")).toMatchObject({ dataStatus: "MATCHED", performanceStatus: "WARNING" });
+    expect(targetData.body.rows.find((row) => row.category === "EXPCRIT")).toMatchObject({ dataStatus: "MATCHED", performanceStatus: "CRITICAL" });
+    expect(targetData.body.rows.find((row) => row.category === "EARNON")).toMatchObject({ dataStatus: "MATCHED", performanceStatus: "ON_TRACK" });
+    expect(targetData.body.rows.find((row) => row.category === "CONSON")).toMatchObject({ dataStatus: "MATCHED", performanceStatus: "ON_TRACK" });
+
+    const summary = await request(application)
+      .get("/api/reports/summary?financialYear=300000000000000000000001")
+      .set("Cookie", manager.cookies);
+    expect(summary.status).toBe(200);
+    expect(summary.body.dataStatusCounts.UNIT_MISMATCH).toBeGreaterThan(0);
+    expect(summary.body.performanceStatusCounts.CRITICAL).toBeGreaterThan(0);
+
+    const plantPerformance = await request(application)
+      .get("/api/reports/plant-performance?financialYear=300000000000000000000001")
+      .set("Cookie", staff.cookies);
+    expect(plantPerformance.status).toBe(200);
+    expect(plantPerformance.body.rows.every((row) => row.plant.code === "PLANT-A")).toBe(true);
+
+    const staffTargetData = await request(application)
+      .get("/api/reports/target-data?financialYear=300000000000000000000001&limit=100")
+      .set("Cookie", staff.cookies);
+    expect(staffTargetData.status).toBe(200);
+    expect(staffTargetData.body.rows.every((row) => row.plant.code === "PLANT-A")).toBe(true);
+
+    const forbiddenWrite = await request(application)
+      .post("/api/reports/summary")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", staff.csrf)
+      .set("Cookie", staff.cookies)
+      .send({});
+    expect(forbiddenWrite.status).toBe(404);
+
+    const zeroTargetWrite = await request(application)
+      .post("/api/targets")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(targetPayload({ month: 9, metricType: "EXPENSE", category: "ZEROACT", plannedValue: 10, unit: "USD" }));
+    expect(zeroTargetWrite.status).toBe(201);
+    const zeroActualWrite = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 9, metricType: "EXPENSE", category: "ZEROACT", actualValue: 0, unit: "USD" }));
+    expect(zeroActualWrite.status).toBe(201);
+    const zeroActualReport = await request(application)
+      .get("/api/reports/target-data?financialYear=300000000000000000000001&month=9&metricType=EXPENSE")
+      .set("Cookie", manager.cookies);
+    expect(zeroActualReport.body.rows.find((row) => row.category === "ZEROACT")).toMatchObject({ actualValue: 0, dataStatus: "MATCHED", performanceStatus: "ON_TRACK" });
+
+    const mismatchedActual = await request(application)
+      .post("/api/actuals")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(actualPayload({ month: 9, metricType: "EXPENSE", category: "ZEROACT", unit: "EUR" }));
+    expect(mismatchedActual.status).toBe(400);
+    expect(mismatchedActual.body.error.code).toBe("UNIT_MISMATCH");
   });
 
   it("exposes read-only sanitized audit logs to admins with safe filters", async () => {

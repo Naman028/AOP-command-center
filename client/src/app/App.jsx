@@ -11,6 +11,7 @@ import { ImportHistoryPage } from "../pages/actuals/ImportHistoryPage.jsx";
 import { DashboardPage } from "../pages/dashboard/DashboardPage.jsx";
 import { MasterDataPage } from "../pages/masterData/MasterDataPage.jsx";
 import { TargetPlanningPage } from "../pages/planning/TargetPlanningPage.jsx";
+import { ReportPage } from "../pages/reports/ReportPage.jsx";
 import { SimplePage } from "../pages/SimplePage.jsx";
 import { LoginPage } from "../pages/public/LoginPage.jsx";
 import { NotFoundPage } from "../pages/public/NotFoundPage.jsx";
@@ -46,7 +47,10 @@ export function App() {
               <Route path="/actuals/manual-entry" element={<RequirePermission permission="ACTUALS_VIEW"><ActualEntryPage /></RequirePermission>} />
               <Route path="/actuals/file-drop" element={<RequirePermission permission="IMPORTS_MANAGE"><FileDropPage /></RequirePermission>} />
               <Route path="/actuals/import-history" element={<RequirePermission permission="IMPORTS_MANAGE"><ImportHistoryPage /></RequirePermission>} />
-              <Route path="/reports" element={<RequirePermission permission="REPORTS_VIEW"><SimplePage title="Reports" /></RequirePermission>} />
+              <Route path="/reports" element={<Navigate to="/reports/target-data" replace />} />
+              <Route path="/reports/target-data" element={<RequirePermission permission="REPORTS_VIEW"><ReportPage report="targetData" /></RequirePermission>} />
+              <Route path="/reports/summary" element={<RequirePermission permission="REPORTS_VIEW"><ReportPage report="summary" /></RequirePermission>} />
+              <Route path="/reports/plant-performance" element={<RequirePermission permission="REPORTS_VIEW"><ReportPage report="plantPerformance" /></RequirePermission>} />
               <Route path="/admin/users" element={<RequirePermission permission="USERS_MANAGE"><SimplePage title="Users" /></RequirePermission>} />
               <Route path="/admin/audit-logs" element={<RequirePermission permission="AUDIT_LOGS_VIEW"><AuditLogsPage /></RequirePermission>} />
             </Route>

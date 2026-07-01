@@ -29,7 +29,10 @@ Rules:
 | `POST /targets` | `TARGETS_MANAGE`; Team Lead plant must be in assignedPlants |
 | `PATCH /targets/:id` | Find target only within allowed plant scope |
 | `POST /imports/confirm` | `IMPORTS_MANAGE`; every row checked against allowed plants |
-| `GET /reports/summary` | `REPORTS_VIEW`; server-derived plant filter |
+| `GET /dashboard/overview?financialYear=:id` | `DASHBOARD_VIEW`; canonical dashboard calculation route |
+| `GET /reports/target-data?financialYear=:id` | `REPORTS_VIEW`; server-derived plant filter |
+| `GET /reports/summary?financialYear=:id` | `REPORTS_VIEW`; server-derived plant filter |
+| `GET /reports/plant-performance?financialYear=:id` | `REPORTS_VIEW`; server-derived plant filter |
 | `GET /reports/export` | `REPORTS_EXPORT`; same report scope rules before workbook generation |
 
 ## Status Codes
@@ -51,4 +54,3 @@ Dashboard, reports, exports, user data, and audit responses must include:
 ```http
 Cache-Control: no-store
 ```
-

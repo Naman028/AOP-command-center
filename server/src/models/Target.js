@@ -19,5 +19,6 @@ const targetSchema = new mongoose.Schema(
 );
 
 targetSchema.index({ plant: 1, financialYear: 1, month: 1, metricType: 1, category: 1, material: 1 }, { unique: true });
+targetSchema.index({ financialYear: 1, plant: 1, isActive: 1, metricType: 1, month: 1 });
 
 export const Target = mongoose.models.Target ?? mongoose.model("Target", targetSchema);

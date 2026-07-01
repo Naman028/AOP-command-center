@@ -21,5 +21,6 @@ const actualSchema = new mongoose.Schema(
 );
 
 actualSchema.index({ plant: 1, financialYear: 1, month: 1, metricType: 1, category: 1, material: 1 }, { unique: true });
+actualSchema.index({ financialYear: 1, plant: 1, isActive: 1, metricType: 1, month: 1 });
 
 export const Actual = mongoose.models.Actual ?? mongoose.model("Actual", actualSchema);

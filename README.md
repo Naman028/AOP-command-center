@@ -4,9 +4,9 @@ Secure MERN command center for planning, actuals, imports, reports, and plant-sc
 
 ## Phase Status
 
-Current step: Phase 5 - secure file drop and import implemented.
+Current step: Phase 6.1 - reporting correctness and MongoDB report gate implemented.
 
-The security foundation, MongoDB persistence gate, master data, target planning, persistent audit logs, manual actual data entry, and secure actual import preview are in place.
+The security foundation, MongoDB persistence gate, master data, target planning, persistent audit logs, manual actual data entry, secure actual import preview, and read-only dashboard/report calculations are in place.
 
 ## Architecture
 

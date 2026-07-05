@@ -33,7 +33,9 @@ Rules:
 | `GET /reports/target-data?financialYear=:id` | `REPORTS_VIEW`; server-derived plant filter |
 | `GET /reports/summary?financialYear=:id` | `REPORTS_VIEW`; server-derived plant filter |
 | `GET /reports/plant-performance?financialYear=:id` | `REPORTS_VIEW`; server-derived plant filter |
-| `GET /reports/export` | `REPORTS_EXPORT`; same report scope rules before workbook generation |
+| `POST /reports/target-data/export` | `REPORTS_EXPORT`; CSRF/origin protected; same report scope rules before workbook generation |
+| `POST /reports/summary/export` | `REPORTS_EXPORT`; CSRF/origin protected; same report scope rules before workbook generation |
+| `POST /reports/plant-performance/export` | `REPORTS_EXPORT`; CSRF/origin protected; same report scope rules before workbook generation |
 
 ## Status Codes
 

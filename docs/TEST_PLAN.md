@@ -52,10 +52,14 @@ Imports and exports:
 - Unauthorized plant rows rejected in preview and confirmation.
 - Temporary files are deleted after processing.
 - Formula-like export values are escaped.
+- POST report exports require authentication, permission, CSRF/origin validation, and `financialYear`.
+- Staff cannot export, and Team Leads cannot export rows outside assigned plant scope through manipulated filters.
+- Export workbooks keep dangerous strings as text, contain no formula cells from database values, leave no generated files on disk, and include title, scope, filters, headers, status columns, numeric formats, freeze panes, and compatible totals.
+- Export audit records persist without secrets, workbook data, rows, or raw notes.
+- Export row/cell limits and the 10-per-user/IP-per-10-minute export rate limit reject safely.
 
 Error handling and logging:
 
 - Production errors omit stack traces and database details.
 - Audit logs exclude passwords, cookies, JWTs, database URIs, and raw uploaded file contents.
 - Authorization failures emit safe `ACCESS_DENIED` audit events.
-

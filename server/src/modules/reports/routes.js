@@ -1,17 +1,41 @@
 import express from "express";
+import ExcelJS from "exceljs";
 import { z } from "zod";
-import { PERMISSIONS } from "../../constants/permissions.js";
+import { PERMISSIONS, ROLES } from "../../constants/permissions.js";
 import { authenticate, requirePermission, serverPlantFilter } from "../../middleware/auth.js";
 import { validateSchema } from "../../middleware/validate.js";
 import { Actual } from "../../models/Actual.js";
 import { Plant } from "../../models/Plant.js";
 import { Target } from "../../models/Target.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { HttpError } from "../../utils/httpError.js";
+import { HttpError, forbidden } from "../../utils/httpError.js";
+import { escapeFormulaValue } from "../../utils/sanitize.js";
 import { requireObjectId, toApiRecord } from "../masterData/common.js";
 
 const metricTypes = ["TURNOVER", "EXPENSE", "CONSUMPTION", "EARNINGS"];
+const supportedUnits = ["USD", "EUR", "EA", "KG", "TON", "L", "KWH", "MWH", "PCS"];
 const allowedSorts = ["plant", "financialYear", "month", "metricType", "category", "dataStatus", "performanceStatus", "variance"];
+const exportRowLimit = 10000;
+const exportCellLimit = 200000;
+const exportRateWindowMs = 10 * 60 * 1000;
+const exportRateMax = 10;
+const exportColumns = [
+  { header: "Plant Code", key: "plantCode", width: 14 },
+  { header: "Plant Name", key: "plantName", width: 24 },
+  { header: "Financial Year", key: "financialYear", width: 16 },
+  { header: "Month", key: "month", width: 10 },
+  { header: "Metric Type", key: "metricType", width: 18 },
+  { header: "Category", key: "category", width: 18 },
+  { header: "Material Code", key: "materialCode", width: 16 },
+  { header: "Material Name", key: "materialName", width: 24 },
+  { header: "Planned Value", key: "plannedValue", width: 16, numeric: true },
+  { header: "Actual Value", key: "actualValue", width: 16, numeric: true },
+  { header: "Unit", key: "unit", width: 10 },
+  { header: "Variance", key: "variance", width: 16, numeric: true },
+  { header: "Attainment %", key: "attainmentPct", width: 16, numeric: true },
+  { header: "Data Status", key: "dataStatus", width: 20 },
+  { header: "Performance Status", key: "performanceStatus", width: 22 }
+];
 
 const reportQuerySchema = z.object({
   plant: z.string().optional(),
@@ -27,9 +51,25 @@ const reportQuerySchema = z.object({
 const dashboardQuerySchema = z.object({
   financialYear: z.string()
 }).strict();
+const exportBodySchema = z.object({
+  financialYear: z.string(),
+  plant: z.string().optional(),
+  monthFrom: z.number().int().min(1).max(12).optional(),
+  monthTo: z.number().int().min(1).max(12).optional(),
+  metricType: z.enum(metricTypes).optional(),
+  category: z.string().trim().max(80).optional(),
+  material: z.string().optional(),
+  unit: z.enum(supportedUnits).optional(),
+  includeHistorical: z.boolean().optional()
+}).strict().superRefine((body, context) => {
+  if (body.monthFrom && body.monthTo && body.monthFrom > body.monthTo) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["monthFrom"], message: "monthFrom must be before or equal to monthTo" });
+  }
+});
 
-export function createReportingRouter({ store, sessionService }) {
+export function createReportingRouter({ store, sessionService, auditService }) {
   const router = express.Router();
+  const exportRateLimiter = createExportRateLimiter();
   router.use(authenticate(sessionService));
   router.use((_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
@@ -61,6 +101,42 @@ export function createReportingRouter({ store, sessionService }) {
     const comparisons = await buildComparisons(store, req.user, query);
     res.json({ rows: summarizeBy(comparisons, ["plant", "metricType", "unit"]), dataStatusCounts: countDataStatuses(comparisons), performanceStatusCounts: countPerformanceStatuses(comparisons) });
   }));
+
+  const exportHandler = (reportType) => [
+    requirePermission(PERMISSIONS.REPORTS_EXPORT),
+    exportRateLimiter,
+    validateSchema(exportBodySchema),
+    asyncHandler(async (req, res) => {
+      if (req.body.includeHistorical && req.user.role !== ROLES.ADMIN) {
+        throw forbidden("Historical export is not permitted");
+      }
+      const query = normalizeExportQuery(validateObjectIdFilters(req.body));
+      const comparisons = sortComparisons(await buildComparisons(store, req.user, query), "plant");
+      const rows = exportRowsForType(reportType, comparisons, query);
+      enforceExportLimits(rows, exportColumns.length);
+      const workbook = buildExportWorkbook(reportType, rows, query, req.user);
+      const buffer = await workbook.xlsx.writeBuffer();
+      await auditService.record({
+        actorUserId: req.user.id,
+        action: "EXPORT_REPORT",
+        entityType: "Report",
+        entityId: reportType,
+        reportType,
+        filters: sanitizeExportFilters(query),
+        permittedPlantScope: permittedPlantScope(req.user),
+        requestId: req.id
+      }, req);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeExportFilename(reportType)}"`);
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.send(Buffer.from(buffer));
+    })
+  ];
+
+  router.post("/reports/target-data/export", ...exportHandler("target-data"));
+  router.post("/reports/summary/export", ...exportHandler("summary"));
+  router.post("/reports/plant-performance/export", ...exportHandler("plant-performance"));
 
   return router;
 }
@@ -100,10 +176,18 @@ async function loadMongoRows(user, query) {
 
 function buildMongoFilter(query) {
   const filter = { isActive: true };
-  for (const field of ["plant", "financialYear", "month", "metricType"]) {
+  for (const field of ["plant", "financialYear", "metricType"]) {
     if (query[field] !== undefined) {
       filter[field] = query[field];
     }
+  }
+  if (query.month !== undefined) {
+    filter.month = query.month;
+  }
+  if (query.monthFrom !== undefined || query.monthTo !== undefined) {
+    filter.month = {};
+    if (query.monthFrom !== undefined) filter.month.$gte = query.monthFrom;
+    if (query.monthTo !== undefined) filter.month.$lte = query.monthTo;
   }
   if (query.category) {
     filter.category = normalizeCategory(query.category);
@@ -122,6 +206,8 @@ function loadMemoryRows(store, user, query) {
     if (query.plant && row.plant?.id !== query.plant) return false;
     if (query.financialYear && row.financialYear?.id !== query.financialYear) return false;
     if (query.month && row.month !== query.month) return false;
+    if (query.monthFrom && row.month < query.monthFrom) return false;
+    if (query.monthTo && row.month > query.monthTo) return false;
     if (query.metricType && row.metricType !== query.metricType) return false;
     if (query.category && row.category !== normalizeCategory(query.category)) return false;
     if (query.material && row.material?.id !== query.material) return false;
@@ -310,6 +396,183 @@ function paginate(rows, query) {
   const total = rows.length;
   const start = (query.page - 1) * query.limit;
   return { rows: rows.slice(start, start + query.limit), page: query.page, limit: query.limit, total };
+}
+
+function createExportRateLimiter() {
+  const attempts = new Map();
+  return (req, _res, next) => {
+    const key = `${req.user?.id ?? "anonymous"}:${req.ip}`;
+    const now = Date.now();
+    const current = attempts.get(key) ?? { count: 0, resetAt: now + exportRateWindowMs };
+    if (current.resetAt <= now) {
+      current.count = 0;
+      current.resetAt = now + exportRateWindowMs;
+    }
+    current.count += 1;
+    attempts.set(key, current);
+    if (current.count > exportRateMax) {
+      next(new HttpError(429, "Export request limit exceeded", "EXPORT_RATE_LIMITED"));
+      return;
+    }
+    next();
+  };
+}
+
+function normalizeExportQuery(body) {
+  const query = { ...body };
+  if (query.category) {
+    query.category = normalizeCategory(query.category);
+  }
+  return query;
+}
+
+function exportRowsForType(reportType, comparisons, query) {
+  const rows = reportType === "target-data"
+    ? comparisons
+    : summarizeBy(comparisons, reportType === "plant-performance" ? ["plant", "metricType", "unit"] : ["metricType", "unit"]);
+  return rows
+    .filter((row) => !query.unit || row.unit === query.unit)
+    .map((row) => reportType === "target-data" ? flattenComparisonRow(row) : flattenSummaryRow(row, reportType));
+}
+
+function flattenComparisonRow(row) {
+  return {
+    plantCode: row.plant.code,
+    plantName: row.plant.name,
+    financialYear: row.financialYear.label,
+    month: row.month,
+    metricType: row.metricType,
+    category: row.category,
+    materialCode: row.material?.code ?? "",
+    materialName: row.material?.name ?? "",
+    plannedValue: row.plannedValue,
+    actualValue: row.actualValue,
+    unit: row.dataStatus === "UNIT_MISMATCH" ? `${row.targetUnit ?? ""}/${row.actualUnit ?? ""}` : row.unit,
+    variance: row.variance,
+    attainmentPct: row.attainmentPct,
+    dataStatus: row.dataStatus,
+    performanceStatus: row.performanceStatus ?? ""
+  };
+}
+
+function flattenSummaryRow(row, reportType) {
+  return {
+    plantCode: reportType === "plant-performance" ? row.plant.code : "ALL",
+    plantName: reportType === "plant-performance" ? row.plant.name : "All permitted plants",
+    financialYear: "",
+    month: "",
+    metricType: row.metricType,
+    category: "SUMMARY",
+    materialCode: "",
+    materialName: "",
+    plannedValue: round(row.plannedValue),
+    actualValue: round(row.actualValue),
+    unit: row.unit,
+    variance: round(row.variance),
+    attainmentPct: row.attainmentPct,
+    dataStatus: statusCountText(row.dataStatusCounts),
+    performanceStatus: statusCountText(row.performanceStatusCounts)
+  };
+}
+
+function enforceExportLimits(rows, columnCount) {
+  if (rows.length > exportRowLimit || rows.length * columnCount > exportCellLimit) {
+    throw new HttpError(400, "Export limit exceeded", "EXPORT_LIMIT_EXCEEDED");
+  }
+}
+
+function buildExportWorkbook(reportType, rows, query, user) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "AOP Command Center";
+  const generatedAt = new Date();
+  workbook.created = generatedAt;
+  workbook.modified = generatedAt;
+  const worksheet = workbook.addWorksheet("Report", {
+    views: [{ state: "frozen", ySplit: 7 }]
+  });
+  worksheet.addRow([reportTitle(reportType)]);
+  worksheet.addRow(["Generated At", generatedAt.toISOString()]);
+  worksheet.addRow(["Scope", permittedPlantScope(user).join(", ")]);
+  worksheet.addRow(["Filters", filterSummary(query)]);
+  worksheet.addRow(["Rows", rows.length]);
+  worksheet.addRow([]);
+  worksheet.addRow(exportColumns.map((column) => column.header));
+  worksheet.getRow(1).font = { bold: true, size: 14 };
+  worksheet.getRow(7).font = { bold: true };
+  worksheet.columns = exportColumns.map((column) => ({ key: column.key, width: column.width }));
+  for (const row of rows) {
+    worksheet.addRow(Object.fromEntries(
+      exportColumns.map((column) => [column.key, exportCellValue(row[column.key])])
+    ));
+  }
+  addTotalsRow(worksheet, rows.length);
+  for (const column of exportColumns) {
+    if (column.numeric) {
+      worksheet.getColumn(column.key).numFmt = "#,##0.00";
+    }
+  }
+  return workbook;
+}
+
+function addTotalsRow(worksheet, rowCount) {
+  const totalRowNumber = rowCount + 8;
+  const totalRow = worksheet.getRow(totalRowNumber);
+  totalRow.getCell(1).value = "Totals";
+  for (const key of ["plannedValue", "actualValue", "variance"]) {
+    const columnNumber = exportColumns.findIndex((column) => column.key === key) + 1;
+    const values = [];
+    for (let rowNumber = 8; rowNumber < totalRowNumber; rowNumber += 1) {
+      const value = worksheet.getRow(rowNumber).getCell(columnNumber).value;
+      if (typeof value === "number") values.push(value);
+    }
+    totalRow.getCell(columnNumber).value = round(values.reduce((total, value) => total + value, 0));
+    totalRow.getCell(columnNumber).numFmt = "#,##0.00";
+  }
+  totalRow.font = { bold: true };
+}
+
+function exportCellValue(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  return escapeFormulaValue(String(value));
+}
+
+function reportTitle(reportType) {
+  return {
+    "target-data": "Target Data Export",
+    summary: "Summary Export",
+    "plant-performance": "Plant Performance Export"
+  }[reportType];
+}
+
+function filterSummary(query) {
+  return Object.entries(sanitizeExportFilters(query))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("; ");
+}
+
+function sanitizeExportFilters(query) {
+  const allowed = ["financialYear", "plant", "monthFrom", "monthTo", "metricType", "category", "material", "unit", "includeHistorical"];
+  return Object.fromEntries(allowed.filter((key) => query[key] !== undefined).map((key) => [key, query[key]]));
+}
+
+function permittedPlantScope(user) {
+  return serverPlantFilter(user) ? [...serverPlantFilter(user)] : ["ALL"];
+}
+
+function safeExportFilename(reportType) {
+  return `aop-${reportType}-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+}
+
+function statusCountText(counts) {
+  return Object.entries(counts)
+    .filter(([, count]) => count > 0)
+    .map(([status, count]) => `${status}:${count}`)
+    .join("; ");
 }
 
 function comparisonKey(row) {

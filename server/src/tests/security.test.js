@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import ExcelJS from "exceljs";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
@@ -55,6 +56,36 @@ function actualPayload(overrides = {}) {
     notes: "",
     ...overrides
   };
+}
+
+const exportBody = {
+  financialYear: "300000000000000000000001"
+};
+
+function parseBinary(res, callback) {
+  const chunks = [];
+  res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+  res.on("end", () => callback(null, Buffer.concat(chunks)));
+}
+
+async function loadWorkbook(response) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(response.body);
+  return workbook;
+}
+
+async function listFilesRecursive(root) {
+  const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+  const files = [];
+  for (const entry of entries) {
+    const fullPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listFilesRecursive(fullPath));
+    } else {
+      files.push(fullPath);
+    }
+  }
+  return files;
 }
 
 describe("security architecture", () => {
@@ -399,25 +430,299 @@ describe("security architecture", () => {
     await fs.rm(fixtureDir, { recursive: true, force: true });
   });
 
-  it("escapes formula-like values in exports and audits authorization failures", async () => {
+  it("exports reports only through authenticated CSRF-protected POST requests with scoped workbooks and safe audits", async () => {
     const application = app();
-    application.locals.store.targets.push({
-      ...application.locals.store.targets[0],
-      id: "400000000000000000000099",
-      category: "FORMULA",
-      plannedValue: "=SUM(1,1)"
+    const dangerousPrefixes = ["=", "+", "-", "@", "\t", "\r", "\n", "＝", "＋", "－", "＠"];
+    dangerousPrefixes.forEach((prefix, index) => {
+      application.locals.store.targets.push({
+        ...application.locals.store.targets[0],
+        id: `4000000000000000000008${String(index).padStart(2, "0")}`,
+        category: `FORMULA_${index}`,
+        material: {
+          id: `2000000000000000000008${String(index).padStart(2, "0")}`,
+          code: `MAT-F-${index}`,
+          name: `${prefix}SUM(1,1)`
+        }
+      });
     });
+    const baseTarget = application.locals.store.targets[0];
+    const baseActual = application.locals.store.actuals[0];
+    application.locals.store.targets.push(
+      { ...baseTarget, id: "400000000000000000000910", month: 10, category: "EXPORT_ZERO", plannedValue: 0, unit: "USD" },
+      { ...baseTarget, id: "400000000000000000000911", month: 11, category: "EXPORT_MISSING_ACTUAL", plannedValue: 75, unit: "USD" },
+      { ...baseTarget, id: "400000000000000000000912", month: 12, category: "EXPORT_UNIT_MISMATCH", plannedValue: 50, unit: "USD" }
+    );
+    application.locals.store.actuals.push(
+      { ...baseActual, id: "500000000000000000000910", month: 10, category: "EXPORT_ZERO", actualValue: 10, unit: "USD" },
+      { ...baseActual, id: "500000000000000000000911", month: 11, category: "EXPORT_MISSING_TARGET", actualValue: 25, unit: "USD" },
+      { ...baseActual, id: "500000000000000000000912", month: 12, category: "EXPORT_UNIT_MISMATCH", actualValue: 40, unit: "EUR" }
+    );
     const manager = await login(application, "manager@aop.local");
-    const exportResponse = await request(application).get("/api/reports/export").set("Cookie", manager.cookies);
-    expect(exportResponse.text).toContain("'=SUM(1,1)");
 
-    const lead = await login(application, "lead-a@aop.local");
-    const leadExport = await request(application).get("/api/reports/export").set("Cookie", lead.cookies);
-    expect(leadExport.text).not.toContain("PLANT-B");
+    const anonymous = await request(application)
+      .post("/api/reports/target-data/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", [`csrfToken=${manager.csrf}`])
+      .send(exportBody);
+    expect(anonymous.status).toBe(401);
+
+    const missingOrigin = await request(application)
+      .post("/api/reports/target-data/export")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(exportBody);
+    expect(missingOrigin.status).toBe(403);
+
+    const missingCsrf = await request(application)
+      .post("/api/reports/target-data/export")
+      .set("Origin", "http://localhost:5173")
+      .set("Cookie", manager.cookies)
+      .send(exportBody);
+    expect(missingCsrf.status).toBe(403);
+
+    const missingFinancialYear = await request(application)
+      .post("/api/reports/target-data/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({});
+    expect(missingFinancialYear.status).toBe(400);
 
     const staff = await login(application, "staff@aop.local");
-    await request(application).get("/api/users").set("Cookie", staff.cookies);
-    expect(application.locals.store.auditLogs.some((entry) => entry.action === "ACCESS_DENIED")).toBe(true);
+    const staffExport = await request(application)
+      .post("/api/reports/target-data/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", staff.csrf)
+      .set("Cookie", staff.cookies)
+      .send(exportBody);
+    expect(staffExport.status).toBe(403);
+
+    const lead = await login(application, "lead-a@aop.local");
+    const leadExport = await request(application)
+      .post("/api/reports/target-data/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", lead.csrf)
+      .set("Cookie", lead.cookies)
+      .send({ ...exportBody, plant: "100000000000000000000002" })
+      .buffer(true)
+      .parse(parseBinary);
+    expect(leadExport.status).toBe(200);
+    const leadWorkbook = await loadWorkbook(leadExport);
+    const leadSheet = leadWorkbook.getWorksheet("Report");
+    expect(JSON.stringify(leadSheet.getSheetValues())).not.toContain("PLANT-B");
+
+    const beforeFiles = await listFilesRecursive(path.resolve("server", "storage"));
+    const exportResponse = await request(application)
+      .post("/api/reports/target-data/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send({ ...exportBody, monthFrom: 1, monthTo: 12 })
+      .buffer(true)
+      .parse(parseBinary);
+    expect(exportResponse.status).toBe(200);
+    expect(exportResponse.headers["content-type"]).toContain("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(exportResponse.headers["content-disposition"]).toMatch(/^attachment; filename="aop-target-data-export-\d{4}-\d{2}-\d{2}\.xlsx"$/);
+    expect(exportResponse.headers["cache-control"]).toBe("private, no-store");
+    expect(exportResponse.headers["x-content-type-options"]).toBe("nosniff");
+
+    const workbook = await loadWorkbook(exportResponse);
+    const sheet = workbook.getWorksheet("Report");
+    expect(sheet.getCell("A1").value).toBe("Target Data Export");
+    expect(sheet.getCell("A2").value).toBe("Generated At");
+    expect(new Date(sheet.getCell("B2").value).toISOString()).toBe(sheet.getCell("B2").value);
+    expect(sheet.getCell("A3").value).toBe("Scope");
+    expect(sheet.getCell("B3").value).toBe("ALL");
+    expect(sheet.getCell("A4").value).toBe("Filters");
+    expect(sheet.getCell("B4").value).toContain("financialYear=300000000000000000000001");
+    expect(sheet.views[0]).toMatchObject({ state: "frozen", ySplit: 7 });
+    expect(sheet.getRow(7).values.slice(1)).toEqual([
+      "Plant Code",
+      "Plant Name",
+      "Financial Year",
+      "Month",
+      "Metric Type",
+      "Category",
+      "Material Code",
+      "Material Name",
+      "Planned Value",
+      "Actual Value",
+      "Unit",
+      "Variance",
+      "Attainment %",
+      "Data Status",
+      "Performance Status"
+    ]);
+    expect(sheet.getColumn(9).numFmt).toBe("#,##0.00");
+    expect(sheet.getColumn(10).numFmt).toBe("#,##0.00");
+    expect(sheet.getColumn(12).numFmt).toBe("#,##0.00");
+    const statusValues = sheet.getColumn(14).values.filter(Boolean);
+    expect(statusValues).toContain("MATCHED");
+    const totalRow = sheet.getRow(sheet.rowCount);
+    expect(totalRow.getCell(1).value).toBe("Totals");
+    expect(typeof totalRow.getCell(9).value).toBe("number");
+    const findRow = (category) => {
+      const row = sheet.getRows(8, sheet.rowCount - 8).find((candidate) => candidate.getCell(6).value === category);
+      expect(row).toBeTruthy();
+      return row;
+    };
+    const zeroTarget = findRow("EXPORT_ZERO");
+    expect(zeroTarget.getCell(12).value).toBe(10);
+    expect(zeroTarget.getCell(13).value).toBeNull();
+    expect(zeroTarget.getCell(14).value).toBe("ZERO_TARGET");
+    const missingActual = findRow("EXPORT_MISSING_ACTUAL");
+    expect(missingActual.getCell(10).value).toBeNull();
+    expect(missingActual.getCell(12).value).toBeNull();
+    expect(missingActual.getCell(13).value).toBeNull();
+    expect(missingActual.getCell(14).value).toBe("MISSING_ACTUAL");
+    const missingTarget = findRow("EXPORT_MISSING_TARGET");
+    expect(missingTarget.getCell(9).value).toBeNull();
+    expect(missingTarget.getCell(12).value).toBeNull();
+    expect(missingTarget.getCell(13).value).toBeNull();
+    expect(missingTarget.getCell(14).value).toBe("MISSING_TARGET");
+    const unitMismatch = findRow("EXPORT_UNIT_MISMATCH");
+    expect(unitMismatch.getCell(12).value).toBeNull();
+    expect(unitMismatch.getCell(13).value).toBeNull();
+    expect(unitMismatch.getCell(14).value).toBe("UNIT_MISMATCH");
+
+    const exportedValues = [];
+    sheet.eachRow((row) => row.eachCell((cell) => exportedValues.push(cell.value)));
+    const escapedDangerousValues = exportedValues.filter((value) => (
+      typeof value === "string" && value.startsWith("'") && value.includes("SUM(1,1)")
+    ));
+    expect(escapedDangerousValues).toHaveLength(dangerousPrefixes.length);
+    expect(exportedValues.filter((value) => typeof value === "string" && /^[=+\-@\t\r\n＝＋－＠]/u.test(value))).toHaveLength(0);
+    sheet.eachRow((row) => row.eachCell((cell) => {
+      expect(cell.value?.formula).toBeUndefined();
+    }));
+    expect(typeof sheet.getRow(8).getCell(9).value).toBe("number");
+
+    const afterFiles = await listFilesRecursive(path.resolve("server", "storage"));
+    expect(afterFiles.filter((file) => file.endsWith(".xlsx"))).toEqual(beforeFiles.filter((file) => file.endsWith(".xlsx")));
+
+    const audit = application.locals.store.auditLogs.find((entry) => (
+      entry.action === "EXPORT_REPORT" && entry.reportType === "target-data" && entry.actorUserId === manager.body.user.id
+    ));
+    expect(audit).toMatchObject({
+      actorUserId: manager.body.user.id,
+      entityType: "Report",
+      reportType: "target-data",
+      requestId: expect.any(String)
+    });
+    expect(audit.filters).toMatchObject({ financialYear: "300000000000000000000001", monthFrom: 1, monthTo: 12 });
+    expect(JSON.stringify(audit)).not.toContain("Password123!");
+    expect(JSON.stringify(audit)).not.toContain("SUM(1,1)");
+    expect(JSON.stringify(audit)).not.toContain("workbook");
+    expect(JSON.stringify(audit)).not.toContain("rows");
+
+    const summary = await request(application)
+      .post("/api/reports/summary/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(exportBody)
+      .buffer(true)
+      .parse(parseBinary);
+    expect(summary.status).toBe(200);
+
+    const plantPerformance = await request(application)
+      .post("/api/reports/plant-performance/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", manager.csrf)
+      .set("Cookie", manager.cookies)
+      .send(exportBody)
+      .buffer(true)
+      .parse(parseBinary);
+    expect(plantPerformance.status).toBe(200);
+  });
+
+  it("rejects invalid, oversized, and over-rate export requests safely", async () => {
+    const application = app();
+    const manager = await login(application, "manager@aop.local");
+    const invalidRequests = [
+      { body: { ...exportBody, role: "ADMIN" }, code: "VALIDATION_FAILED" },
+      { body: { financialYear: { $ne: "300000000000000000000001" } }, code: "UNSAFE_INPUT" },
+      { body: { financialYear: "not-an-id" }, code: "INVALID_OBJECT_ID" },
+      { body: { ...exportBody, monthFrom: 12, monthTo: 1 }, code: "VALIDATION_FAILED" },
+      { body: { ...exportBody, metricType: "PROFIT" }, code: "VALIDATION_FAILED" },
+      { body: { ...exportBody, unit: "BTC" }, code: "VALIDATION_FAILED" },
+      { body: { ...exportBody, includeHistorical: true }, code: "FORBIDDEN" }
+    ];
+
+    for (const invalid of invalidRequests) {
+      const response = await request(application)
+        .post("/api/reports/target-data/export")
+        .set("Origin", "http://localhost:5173")
+        .set("X-CSRF-Token", manager.csrf)
+        .set("Cookie", manager.cookies)
+        .send(invalid.body);
+      expect(response.status).toBeGreaterThanOrEqual(400);
+      expect(response.body.error.code).toBe(invalid.code);
+    }
+
+    const oversizedApp = app();
+    const oversizedManager = await login(oversizedApp, "manager@aop.local");
+    const base = oversizedApp.locals.store.targets[0];
+    for (let index = 0; index < 10001; index += 1) {
+      oversizedApp.locals.store.targets.push({
+        ...base,
+        id: `49999999999999999${String(index).padStart(7, "0")}`,
+        month: (index % 12) + 1,
+        category: `LIMIT_${index}`
+      });
+    }
+    const oversized = await request(oversizedApp)
+      .post("/api/reports/target-data/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", oversizedManager.csrf)
+      .set("Cookie", oversizedManager.cookies)
+      .send(exportBody);
+    expect(oversized.status).toBe(400);
+    expect(oversized.body.error.code).toBe("EXPORT_LIMIT_EXCEEDED");
+    expect(oversized.body.error.message).toBe("Export limit exceeded");
+    expect(oversizedApp.locals.store.auditLogs.some((entry) => entry.action === "EXPORT_REPORT")).toBe(false);
+
+    const auditFailureApp = app();
+    const auditFailureManager = await login(auditFailureApp, "manager@aop.local");
+    const originalPush = auditFailureApp.locals.store.auditLogs.push.bind(auditFailureApp.locals.store.auditLogs);
+    auditFailureApp.locals.store.auditLogs.push = () => {
+      throw new Error("Audit write failed");
+    };
+    const auditFailure = await request(auditFailureApp)
+      .post("/api/reports/target-data/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", auditFailureManager.csrf)
+      .set("Cookie", auditFailureManager.cookies)
+      .send(exportBody);
+    auditFailureApp.locals.store.auditLogs.push = originalPush;
+    expect(auditFailure.status).toBe(500);
+    expect(auditFailure.headers["content-type"]).toContain("application/json");
+    expect(auditFailure.headers["content-type"]).not.toContain("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    expect(auditFailure.body.error.message).toBe("Audit write failed");
+    expect(auditFailureApp.locals.store.auditLogs.some((entry) => entry.action === "EXPORT_REPORT")).toBe(false);
+
+    const rateApp = app();
+    const rateManager = await login(rateApp, "manager@aop.local");
+    for (let index = 0; index < 10; index += 1) {
+      const response = await request(rateApp)
+        .post("/api/reports/summary/export")
+        .set("Origin", "http://localhost:5173")
+        .set("X-CSRF-Token", rateManager.csrf)
+        .set("Cookie", rateManager.cookies)
+        .send(exportBody)
+        .buffer(true)
+        .parse(parseBinary);
+      expect(response.status).toBe(200);
+    }
+    const limited = await request(rateApp)
+      .post("/api/reports/summary/export")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", rateManager.csrf)
+      .set("Cookie", rateManager.cookies)
+      .send(exportBody);
+    expect(limited.status).toBe(429);
+    expect(limited.body.error.code).toBe("EXPORT_RATE_LIMITED");
   });
 
   it("blocks duplicate target and actual insertion and rejects invalid API input safely", async () => {

@@ -49,5 +49,5 @@ export function escapeFormulaValue(value) {
   if (typeof value !== "string") {
     return value;
   }
-  return /^[=+\-@\t\r\n]/.test(value) ? `'${value}` : value;
+  return /^[=+\-@\t\r\n＝＋－＠]/u.test(value) ? `'${value}` : value;
 }

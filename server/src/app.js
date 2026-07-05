@@ -7,7 +7,6 @@ import { parse } from "csv-parse/sync";
 import ExcelJS from "exceljs";
 import express from "express";
 import multer from "multer";
-import { stringify } from "csv-stringify/sync";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
 import { loadConfig } from "./config/env.js";
@@ -36,7 +35,6 @@ import { createImportRouter } from "./modules/imports/routes.js";
 import { createReportingRouter } from "./modules/reports/routes.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 import { HttpError, forbidden } from "./utils/httpError.js";
-import { escapeFormulaValue } from "./utils/sanitize.js";
 
 const loginSchema = z.object({
   email: z.string().email().transform((value) => value.toLowerCase()),
@@ -319,7 +317,7 @@ export function createApp(options = {}) {
     res.json({ user: req.user });
   });
 
-  app.use("/api", createReportingRouter({ store, sessionService }));
+  app.use("/api", createReportingRouter({ store, sessionService, auditService }));
 
   app.get(
     "/api/dashboard",
@@ -343,21 +341,6 @@ export function createApp(options = {}) {
         actuals: visibleActuals(store, req.user, req.validatedQuery)
       });
     }
-  );
-
-  app.get(
-    "/api/reports/export",
-    authenticate(sessionService),
-    requirePermission(PERMISSIONS.REPORTS_EXPORT),
-    validateSchema(reportQuerySchema, "query"),
-    sensitiveNoStore,
-    asyncHandler(async (req, res) => {
-      const rows = visibleTargets(store, req.user, req.validatedQuery).map((row) => Object.fromEntries(
-        Object.entries(row).map(([key, value]) => [key, escapeFormulaValue(value)])
-      ));
-      await auditService.record({ actorUserId: req.user.id, action: "EXPORT_REPORT", entityType: "Report", requestId: req.id }, req);
-      res.type("text/csv").send(stringify(rows, { header: true }));
-    })
   );
 
   app.post(

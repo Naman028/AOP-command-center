@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import ExcelJS from "exceljs";
 import mongoose from "mongoose";
 import request from "supertest";
 import { createApp } from "../server/src/app.js";
@@ -37,6 +38,18 @@ async function login(application, email = "admin@aop.local") {
     cookies,
     csrf: decodeURIComponent(csrfCookie.split(";")[0].split("=")[1])
   };
+}
+
+function parseBinary(res, callback) {
+  const chunks = [];
+  res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+  res.on("end", () => callback(null, Buffer.concat(chunks)));
+}
+
+async function loadWorkbook(response) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(response.body);
+  return workbook;
 }
 
 async function createTargetActual(application, auth, { plantId, financialYearId, month, metricType, category, plannedValue, actualValue, unit, material }) {
@@ -343,6 +356,38 @@ async function run() {
   assert.equal(byCategory.get(`${code}-UNIT-MISMATCH`).attainmentPct, null);
   process.stdout.write("[PASS] Unit mismatch returns no variance or attainment\n");
 
+  const exportAuditCount = await AuditLog.countDocuments({ action: "EXPORT_REPORT" });
+  const adminExport = await request(gate.app)
+    .post("/api/reports/target-data/export")
+    .set("Origin", origin)
+    .set("X-CSRF-Token", restartedAuth.csrf)
+    .set("Cookie", restartedAuth.cookies)
+    .send({ financialYear: financialYearParam, plant: created.body.plant.id })
+    .buffer(true)
+    .parse(parseBinary);
+  assert.equal(adminExport.status, 200, adminExport.text);
+  assert.match(adminExport.headers["content-type"], /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/);
+  assert.match(adminExport.headers["content-disposition"], /^attachment; filename="aop-target-data-export-\d{4}-\d{2}-\d{2}\.xlsx"$/);
+  assert.equal(adminExport.headers["cache-control"], "private, no-store");
+  assert.equal(adminExport.headers["x-content-type-options"], "nosniff");
+  assert.equal(adminExport.body[0], 0x50);
+  assert.equal(adminExport.body[1], 0x4b);
+  const adminWorkbook = await loadWorkbook(adminExport);
+  const adminSheetText = JSON.stringify(adminWorkbook.getWorksheet("Report").getSheetValues());
+  assert.ok(adminSheetText.includes(`${code}-TURN-ON`), "Admin export workbook did not include persisted Mongo report rows");
+  process.stdout.write("[PASS] Authenticated Admin POST export succeeds against persisted MongoDB data\n");
+  process.stdout.write("[PASS] XLSX response has expected headers and workbook bytes\n");
+
+  const exportAudit = await AuditLog.findOne({ action: "EXPORT_REPORT" }).sort({ createdAt: -1 }).lean();
+  assert.ok(exportAudit, "EXPORT_REPORT audit record was not persisted");
+  assert.ok(await AuditLog.countDocuments({ action: "EXPORT_REPORT" }) > exportAuditCount, "EXPORT_REPORT audit count did not increase");
+  assert.equal(exportAudit.reportType, "target-data");
+  assert.equal(exportAudit.entityId, "target-data");
+  assert.equal(String(exportAudit.filters.financialYear), financialYearParam);
+  assert.equal(String(exportAudit.filters.plant), created.body.plant.id);
+  assert.ok(!JSON.stringify(exportAudit).includes(`${code}-TURN-ON`), "Export audit stored row data");
+  process.stdout.write("[PASS] EXPORT_REPORT audit record persists after export\n");
+
   const leadAuth = await login(gate.app, "lead-a@aop.local");
   const leadReport = await request(gate.app)
     .get(`/api/reports/target-data?financialYear=${financialYearParam}&limit=100`)
@@ -350,6 +395,20 @@ async function run() {
   assert.equal(leadReport.status, 200, leadReport.text);
   assert.ok(leadReport.body.rows.every((row) => row.plant.code !== "PLANT-B"), "Team Lead A received Plant B report data");
   process.stdout.write("[PASS] Team Lead A cannot receive Plant B report data\n");
+  const leadExport = await request(gate.app)
+    .post("/api/reports/target-data/export")
+    .set("Origin", origin)
+    .set("X-CSRF-Token", leadAuth.csrf)
+    .set("Cookie", leadAuth.cookies)
+    .send({ financialYear: financialYearParam, plant: String(plantB._id) })
+    .buffer(true)
+    .parse(parseBinary);
+  assert.equal(leadExport.status, 200, leadExport.text);
+  assert.equal(leadExport.body[0], 0x50);
+  assert.equal(leadExport.body[1], 0x4b);
+  const leadWorkbook = await loadWorkbook(leadExport);
+  assert.ok(!JSON.stringify(leadWorkbook.getWorksheet("Report").getSheetValues()).includes("PLANT-B"), "Team Lead A export contained Plant B data");
+  process.stdout.write("[PASS] Team Lead A export contains no Plant B data\n");
   process.stdout.write("[PASS] Dashboard/report API response survives backend restart\n");
 
   const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), "aop-gate-import-"));

@@ -123,7 +123,11 @@ Uploads:
 15. Delete temporary file.
 16. Save ImportBatch and audit event.
 
-Exports must escape values beginning with `=`, `+`, `-`, `@`, tabs, or line breaks to reduce spreadsheet-formula injection. Only export records the authenticated user is authorized to view.
+Exports use authenticated POST requests so Origin and CSRF validation apply before workbook generation. Export filters are accepted only from a strict request body, and unknown fields, unsafe query operators, invalid ObjectIds, invalid month ranges, invalid metric types, unsupported units, oversized exports, and rate-limit violations fail safely.
+
+Exports must escape every string value beginning with `=`, `+`, `-`, `@`, tab, carriage return, line feed, `＝`, `＋`, `－`, or `＠` to reduce spreadsheet-formula injection. Genuine numbers remain numeric, and database values must never be assigned as workbook formulas. Only export records the authenticated user is authorized to view.
+
+Exports are generated in memory only, never persisted to local disk, database, or public folders, and are capped at 10,000 rows, 200,000 worksheet cells, and 10 export requests per user/IP per 10 minutes. `EXPORT_REPORT` is written only after report data and workbook generation succeed; if durable audit logging fails, the export is not delivered.
 
 ## Audit Logging
 
@@ -196,4 +200,3 @@ MongoDB Atlas:
 - IP/network restrictions.
 - Least-privilege app database user.
 - Backups enabled.
-

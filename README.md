@@ -4,9 +4,26 @@ Secure MERN command center for planning, actuals, imports, reports, and plant-sc
 
 ## Phase Status
 
-Current step: Phase 6.1 - reporting correctness and MongoDB report gate implemented.
+**Current step: Phase 8.0 - Production deployment readiness complete.**
 
-The security foundation, MongoDB persistence gate, master data, target planning, persistent audit logs, manual actual data entry, secure actual import preview, and read-only dashboard/report calculations are in place.
+Completed:
+
+- Security foundation and authorization controls
+- Master Data
+- Target Planning
+- Persistent MongoDB audit logs
+- Manual Actual Data Entry
+- Secure File Drop preview/import workflow
+- Dashboard and reporting calculations
+- Secure Excel report export
+- Production deployment readiness configuration
+
+Next:
+
+- MongoDB Atlas transaction/import confirmation
+- Render backend deployment
+- Vercel frontend deployment
+- Production end-to-end verification
 
 ## Architecture
 

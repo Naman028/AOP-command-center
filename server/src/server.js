@@ -28,7 +28,7 @@ export async function startServer({
   serverConfig = config,
   serverApp,
   connect = mongoose.connect,
-  listen = (application, port) => application.listen(port),
+  listen = (application, port, host) => application.listen(port, host),
   syncIndexes = syncMasterDataIndexes
 } = {}) {
   let useMongo = false;
@@ -46,7 +46,7 @@ export async function startServer({
     process.stderr.write(`MongoDB unavailable, starting development API with seeded in-memory data: ${error.message}\n`);
   }
   const application = serverApp ?? createApp({ config: serverConfig, store: { useMongo } });
-  return listen(application, serverConfig.port);
+  return listen(application, serverConfig.port, serverConfig.host);
 }
 
 if (process.env.NODE_ENV !== "test" && process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

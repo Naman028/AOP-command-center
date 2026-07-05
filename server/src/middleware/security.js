@@ -4,8 +4,10 @@ import rateLimit from "express-rate-limit";
 import { HttpError } from "../utils/httpError.js";
 
 export function configureProxy(app, config) {
+  if (config.trustProxy) {
+    app.set("trust proxy", config.trustProxy);
+  }
   if (config.isProduction) {
-    app.set("trust proxy", 1);
     app.use((req, _res, next) => {
       if (req.secure || req.get("x-forwarded-proto") === "https") {
         next();

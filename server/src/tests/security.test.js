@@ -7,15 +7,18 @@ import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../app.js";
 import { startServer } from "../server.js";
 
-function app(config = {}) {
+function app(config = {}, store) {
   return createApp({
     config: {
       NODE_ENV: "test",
       CLIENT_ORIGINS: "http://localhost:5173",
       COOKIE_SECURE: "false",
       BCRYPT_WORK_FACTOR: "12",
+      ACCESS_TOKEN_SECRET: "test-access-secret-with-enough-length",
+      REFRESH_TOKEN_SECRET: "test-refresh-secret-with-enough-length",
       ...config
-    }
+    },
+    store
   });
 }
 
@@ -106,6 +109,7 @@ describe("security architecture", () => {
     const application = app({
       NODE_ENV: "production",
       CLIENT_ORIGINS: "https://app.example.com",
+      MONGODB_URI: "mongodb://localhost:27017/test",
       COOKIE_SECURE: "true"
     });
 
@@ -126,6 +130,16 @@ describe("security architecture", () => {
       .send({ email: "admin@aop.local", password: "Password123!" });
     expect(blocked.status).toBe(403);
     expect(blocked.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("does not attach default demo users to production Mongo apps", () => {
+    const application = app({
+      NODE_ENV: "production",
+      CLIENT_ORIGINS: "https://app.example.com",
+      MONGODB_URI: "mongodb://localhost:27017/test",
+      COOKIE_SECURE: "true"
+    }, { useMongo: true });
+    expect(application.locals.store.users).toEqual([]);
   });
 
   it("uses generic login failures and stores no plaintext passwords", async () => {

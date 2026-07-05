@@ -186,6 +186,15 @@ Backend:
 - Health endpoint.
 - CORS allowlist only for permitted frontend origins.
 - Cookie settings set for production proxy.
+- Pin Node 22 for deployment.
+- Bind to Render's `PORT` on `0.0.0.0`.
+- Set `TRUST_PROXY=1` behind the Render HTTPS proxy.
+- Use `npm ci` as the deployment build command.
+- Do not set broad `COOKIE_DOMAIN`; use host-only secure cookies.
+- Same-site custom-domain deployment uses `COOKIE_SAMESITE=lax`.
+- Temporary cross-site Vercel/Render default-domain staging uses `COOKIE_SAMESITE=none` and HTTPS.
+- Production must not include default demo users such as `admin@aop.local` / `Password123!`.
+- Production startup must fail without `MONGODB_URI` and strong token secrets.
 
 GitHub:
 
@@ -200,3 +209,5 @@ MongoDB Atlas:
 - IP/network restrictions.
 - Least-privilege app database user.
 - Backups enabled.
+- Replace temporary broad network access with Render outbound CIDR ranges or dedicated outbound IPs after initial testing.
+- Use a replica-set-capable Atlas database for all-or-nothing import confirmation tests.

@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import bcrypt from "bcryptjs";
 import ExcelJS from "exceljs";
 import mongoose from "mongoose";
 import request from "supertest";
+import { ROLES } from "../server/src/constants/permissions.js";
 import { createApp } from "../server/src/app.js";
 import { loadConfig } from "../server/src/config/env.js";
 import { Actual } from "../server/src/models/Actual.js";
@@ -13,6 +15,7 @@ import { FinancialYear } from "../server/src/models/FinancialYear.js";
 import { Material } from "../server/src/models/Material.js";
 import { Plant } from "../server/src/models/Plant.js";
 import { Target } from "../server/src/models/Target.js";
+import { User } from "../server/src/models/User.js";
 import { startServer } from "../server/src/server.js";
 
 const origin = process.env.CLIENT_ORIGINS?.split(",")[0] ?? "http://localhost:5173";
@@ -141,6 +144,60 @@ async function closeGateApp(server) {
   await mongoose.disconnect();
 }
 
+async function ensureGateUsers() {
+  const passwordHash = await bcrypt.hash("Password123!", 12);
+  const users = [
+    {
+      _id: "000000000000000000000001",
+      email: "admin@aop.local",
+      name: "Admin User",
+      role: ROLES.ADMIN,
+      assignedPlants: ["PLANT-A", "PLANT-B"],
+      isActive: true
+    },
+    {
+      _id: "000000000000000000000002",
+      email: "manager@aop.local",
+      name: "Operations Manager",
+      role: ROLES.MANAGER,
+      assignedPlants: ["PLANT-A", "PLANT-B"],
+      isActive: true
+    },
+    {
+      _id: "000000000000000000000003",
+      email: "lead-a@aop.local",
+      name: "Team Lead A",
+      role: ROLES.TEAM_LEAD,
+      assignedPlants: ["PLANT-A"],
+      isActive: true
+    },
+    {
+      _id: "000000000000000000000004",
+      email: "staff@aop.local",
+      name: "Staff User",
+      role: ROLES.STAFF,
+      assignedPlants: ["PLANT-A"],
+      isActive: true
+    },
+    {
+      _id: "000000000000000000000005",
+      email: "inactive@aop.local",
+      name: "Inactive User",
+      role: ROLES.STAFF,
+      assignedPlants: ["PLANT-A"],
+      isActive: false
+    }
+  ];
+
+  for (const user of users) {
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { ...user, passwordHash } },
+      { upsert: true }
+    );
+  }
+}
+
 async function verifyIndexes() {
   const [plantIndexes, materialIndexes, financialYearIndexes, targetIndexes, actualIndexes, auditIndexes] = await Promise.all([
     Plant.collection.indexes(),
@@ -166,18 +223,33 @@ async function verifyIndexes() {
 }
 
 async function verifyProductionFailsClosed() {
+  assert.throws(
+    () => loadConfig({
+      NODE_ENV: "production",
+      MONGODB_URI: "",
+      ACCESS_TOKEN_SECRET: "production-test-access-secret",
+      REFRESH_TOKEN_SECRET: "production-test-refresh-secret"
+    }),
+    /Production requires MONGODB_URI/
+  );
+
   await assert.rejects(
     startServer({
-      serverConfig: loadConfig({ NODE_ENV: "production", MONGODB_URI: "" }),
+      serverConfig: loadConfig({
+        NODE_ENV: "production",
+        MONGODB_URI: "mongodb://unavailable",
+        ACCESS_TOKEN_SECRET: "production-test-access-secret",
+        REFRESH_TOKEN_SECRET: "production-test-refresh-secret"
+      }),
       serverApp: {},
       connect: async () => {
-        throw new Error("connect should not be called without MONGODB_URI");
+        throw new Error("database unavailable");
       },
       listen: () => {
-        throw new Error("listen should not be called without MONGODB_URI");
+        throw new Error("listen should not be called when database is unavailable");
       }
     }),
-    /MONGODB_URI is required/
+    /database unavailable/
   );
 }
 
@@ -194,6 +266,7 @@ async function run() {
   };
 
   let gate = await startGateApp();
+  await ensureGateUsers();
   const auth = await login(gate.app);
   const created = await request(gate.app)
     .post("/api/master-data/plants")
@@ -455,7 +528,7 @@ async function run() {
   process.stdout.write("✓ Master-data indexes exist in MongoDB\n");
   await closeGateApp(gate.server);
   await verifyProductionFailsClosed();
-  process.stdout.write("✓ Production mode without MONGODB_URI fails closed\n");
+  process.stdout.write("✓ Production mode without MongoDB fails closed\n");
 
   process.stdout.write(`MongoDB persistence gate passed for plant ${code}\n`);
 }

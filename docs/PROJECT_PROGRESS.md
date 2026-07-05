@@ -126,3 +126,68 @@ Test matrix:
 - Workbook title, scope, filters, headers, status columns, numeric formats, freeze panes, and compatible totals are present.
 - Export audit records persist and contain no secrets, workbook data, rows, or raw notes.
 - Export row/cell limits and export rate limits reject safely.
+
+## Phase 8 - Production Deployment And Replica-Set Import Confirmation
+
+Status: Phase 8.0 deployment-readiness configuration in progress.
+
+Deployment choice:
+
+- Frontend: Vercel.
+- Backend: Render.
+- Database: MongoDB Atlas.
+
+Corrected cookie plan:
+
+- Temporary Vercel + Render default-domain staging is cross-site:
+  - `COOKIE_SECURE=true`
+  - `COOKIE_SAMESITE=none`
+  - `CLIENT_ORIGINS=https://your-vercel-app.vercel.app`
+- Final portfolio deployment should use custom same-site subdomains:
+  - `https://app.yourdomain.com` for Vercel
+  - `https://api.yourdomain.com` for Render
+  - `COOKIE_SECURE=true`
+  - `COOKIE_SAMESITE=lax`
+  - `CLIENT_ORIGINS=https://app.yourdomain.com`
+- Do not set broad `COOKIE_DOMAIN`; keep host-only secure cookies.
+
+Render backend settings:
+
+- Service type: Web Service.
+- Root directory: repository root.
+- Build command: `npm ci`.
+- Start command: `npm run start --workspace server`.
+- Health check path: `/health`.
+- Node version: pinned to Node 22.
+- Backend binds to `0.0.0.0` and uses `process.env.PORT`.
+- `TRUST_PROXY=1` is required behind Render HTTPS proxy.
+
+Production variables supported by `env.js`:
+
+```env
+NODE_ENV=production
+MONGODB_URI=...
+CLIENT_ORIGINS=https://app.yourdomain.com
+COOKIE_SECURE=true
+COOKIE_SAMESITE=lax
+ACCESS_TOKEN_SECRET=long-random-secret
+REFRESH_TOKEN_SECRET=long-random-secret
+BCRYPT_WORK_FACTOR=12
+TRUST_PROXY=1
+```
+
+Temporary staging with default Vercel/Render domains changes only:
+
+```env
+CLIENT_ORIGINS=https://your-vercel-app.vercel.app
+COOKIE_SAMESITE=none
+```
+
+Mandatory Phase 8 production checks:
+
+- No default production users: `admin@aop.local` / `Password123!` must not work in production.
+- Production Admin must be created through a protected one-time bootstrap process, and bootstrap credentials must be removed immediately afterward.
+- Deployed app must report transaction support on Atlas.
+- Successful import confirmation must insert all rows.
+- One invalid or conflicting row must insert zero rows.
+- Atlas network access must be narrowed to Render outbound CIDR ranges or dedicated outbound IPs after initial testing.

@@ -1,14 +1,14 @@
 import { forbidden, unauthorized } from "../utils/httpError.js";
 
 export function authenticate(sessionService) {
-  return (req, _res, next) => {
+  return async (req, _res, next) => {
     const token = req.cookies?.accessToken;
     if (!token) {
       next(unauthorized());
       return;
     }
     try {
-      req.user = sessionService.verifyAccessToken(token);
+      req.user = await sessionService.verifyAccessToken(token);
       next();
     } catch (error) {
       next(error);

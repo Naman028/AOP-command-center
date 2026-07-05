@@ -10,7 +10,7 @@ Browser
 React + Vite + Tailwind
   |
   | HTTPS requests with credentials
-  | Axios sends CSRF header for write requests
+  | fetch sends credentials and CSRF header for write requests
   v
 Express API
   |
@@ -124,4 +124,3 @@ Rules:
 - Enable backups and test restoration.
 - Use TLS between backend and MongoDB.
 - Never include real company data in seed files.
-

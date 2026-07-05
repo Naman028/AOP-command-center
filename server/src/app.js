@@ -24,7 +24,7 @@ import {
 } from "./middleware/security.js";
 import { rejectUnsafeInput, validateObjectIdParam, validateSchema } from "./middleware/validate.js";
 import { createAuditService } from "./services/auditService.js";
-import { createSessionService } from "./services/sessionService.js";
+import { createSessionService, normalizeUser } from "./services/sessionService.js";
 import { createSeedStore } from "./services/userStore.js";
 import { createFinancialYearRouter } from "./modules/financialYears/routes.js";
 import { createMaterialRouter } from "./modules/materials/routes.js";
@@ -35,6 +35,7 @@ import { createImportRouter } from "./modules/imports/routes.js";
 import { createReportingRouter } from "./modules/reports/routes.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 import { HttpError, forbidden } from "./utils/httpError.js";
+import { User } from "./models/User.js";
 
 const loginSchema = z.object({
   email: z.string().email().transform((value) => value.toLowerCase()),
@@ -234,8 +235,7 @@ function scopedActual(store, user, actualId) {
 
 export function createApp(options = {}) {
   const config = loadConfig(options.config);
-  const seedStore = createSeedStore(config.bcryptWorkFactor);
-  const store = options.store ? { ...seedStore, ...options.store } : seedStore;
+  const store = createAppStore(config, options.store);
   const auditService = createAuditService(store);
   const sessionService = createSessionService({ config, store, auditService });
   const upload = buildUpload(config);
@@ -267,7 +267,7 @@ export function createApp(options = {}) {
     createLoginRateLimiter(),
     validateSchema(loginSchema),
     asyncHandler(async (req, res) => {
-      const user = store.users.find((candidate) => candidate.email === req.body.email);
+      const user = await findUserByEmail(store, req.body.email);
       const valid = user?.isActive && await bcrypt.compare(req.body.password, user.passwordHash);
       if (!valid) {
         await auditService.record({ action: "LOGIN_FAILED", entityType: "User", requestId: req.id }, req);
@@ -300,13 +300,13 @@ export function createApp(options = {}) {
     authenticate(sessionService),
     validateSchema(changePasswordSchema),
     asyncHandler(async (req, res) => {
-      const user = store.users.find((candidate) => candidate.id === req.user.id && candidate.isActive);
+      const user = await findActiveUserById(store, req.user.id);
       const valid = user && await bcrypt.compare(req.body.currentPassword, user.passwordHash);
       if (!valid) {
         throw new HttpError(400, "Current password is invalid", "INVALID_CURRENT_PASSWORD");
       }
-      user.passwordHash = await bcrypt.hash(req.body.newPassword, config.bcryptWorkFactor);
-      sessionService.revokeUserSessions(user.id);
+      await updateUserRecord(store, user.id, { passwordHash: await bcrypt.hash(req.body.newPassword, config.bcryptWorkFactor) });
+      await sessionService.revokeUserSessions(user.id);
       sessionService.clearAuthCookies(res);
       await auditService.record({ actorUserId: user.id, action: "CHANGE_PASSWORD", entityType: "User", entityId: user.id, requestId: req.id }, req);
       res.json({ ok: true });
@@ -470,13 +470,9 @@ export function createApp(options = {}) {
     authenticate(sessionService),
     requirePermission(PERMISSIONS.USERS_MANAGE),
     sensitiveNoStore,
-    (req, res) => {
-      res.json({ users: store.users.map((user) => {
-        const publicUser = { ...user };
-        delete publicUser.passwordHash;
-        return publicUser;
-      }) });
-    }
+    asyncHandler(async (_req, res) => {
+      res.json({ users: (await listUsers(store)).map(publicUserRecord) });
+    })
   );
 
   app.patch(
@@ -485,22 +481,20 @@ export function createApp(options = {}) {
     requirePermission(PERMISSIONS.USERS_MANAGE),
     validateObjectIdParam("userId"),
     validateSchema(updateUserSchema),
-    (req, res) => {
-      const user = store.users.find((candidate) => candidate.id === req.params.userId);
+    asyncHandler(async (req, res) => {
+      const user = await findUserById(store, req.params.userId);
       if (!user) {
         throw new HttpError(404, "User not found", "USER_NOT_FOUND");
       }
       const before = { role: user.role, isActive: user.isActive };
-      if (req.body.role) {
-        user.role = req.body.role;
-      }
-      if (typeof req.body.isActive === "boolean") {
-        user.isActive = req.body.isActive;
-      }
-      sessionService.revokeUserSessions(user.id);
-      auditService.record({ actorUserId: req.user.id, action: req.body.role ? "CHANGE_ROLE" : "DEACTIVATE_USER", entityType: "User", entityId: user.id, before, after: { role: user.role, isActive: user.isActive }, requestId: req.id });
-      res.json({ user: sessionService.publicUser(user) });
-    }
+      const updates = {};
+      if (req.body.role) updates.role = req.body.role;
+      if (typeof req.body.isActive === "boolean") updates.isActive = req.body.isActive;
+      const updatedUser = await updateUserRecord(store, user.id, updates);
+      await sessionService.revokeUserSessions(user.id);
+      auditService.record({ actorUserId: req.user.id, action: req.body.role ? "CHANGE_ROLE" : "DEACTIVATE_USER", entityType: "User", entityId: user.id, before, after: { role: updatedUser.role, isActive: updatedUser.isActive }, requestId: req.id });
+      res.json({ user: sessionService.publicUser(updatedUser) });
+    })
   );
 
   app.get(
@@ -588,4 +582,65 @@ export function createApp(options = {}) {
   app.locals.store = store;
   app.locals.config = config;
   return app;
+}
+
+function createAppStore(config, overrideStore) {
+  const useProductionMongo = config.isProduction && overrideStore?.useMongo;
+  const baseStore = useProductionMongo
+    ? {
+        users: [],
+        sessions: [],
+        auditLogs: [],
+        plants: [],
+        materials: [],
+        financialYears: [],
+        targets: [],
+        actuals: [],
+        importBatches: []
+      }
+    : createSeedStore(config.bcryptWorkFactor);
+  return overrideStore ? { ...baseStore, ...overrideStore } : baseStore;
+}
+
+async function findUserByEmail(store, email) {
+  if (store.useMongo) {
+    return normalizeUser(await User.findOne({ email }).lean());
+  }
+  return store.users.find((candidate) => candidate.email === email);
+}
+
+async function findUserById(store, id) {
+  if (store.useMongo) {
+    return normalizeUser(await User.findById(id).lean());
+  }
+  return store.users.find((candidate) => candidate.id === id);
+}
+
+async function findActiveUserById(store, id) {
+  const user = await findUserById(store, id);
+  return user?.isActive ? user : null;
+}
+
+async function listUsers(store) {
+  if (store.useMongo) {
+    return (await User.find({}).sort({ email: 1 }).lean()).map(normalizeUser);
+  }
+  return store.users;
+}
+
+async function updateUserRecord(store, id, updates) {
+  if (store.useMongo) {
+    return normalizeUser(await User.findByIdAndUpdate(id, updates, { new: true }).lean());
+  }
+  const user = store.users.find((candidate) => candidate.id === id);
+  Object.assign(user, updates);
+  return user;
+}
+
+function publicUserRecord(user) {
+  const publicUser = { ...normalizeUser(user) };
+  delete publicUser.passwordHash;
+  delete publicUser._id;
+  delete publicUser.__v;
+  return publicUser;
 }

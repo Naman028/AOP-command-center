@@ -10,6 +10,9 @@ node_modules/
 dist/
 build/
 coverage/
+test-results/
+playwright-report/
+blob-report/
 
 # logs
 *.log
@@ -24,4 +27,3 @@ server/storage/temporary-uploads/*
 Thumbs.db
 .vscode/
 .idea/
-

@@ -212,39 +212,60 @@ Mandatory Phase 8 production checks:
 
 ## Phase 9 - User Management And Plant Scope Administration
 
-Status: Next local-development phase.
+Status: Complete.
 
-Objective:
+Completed:
 
-- Replace seeded-test-user dependence with a usable Admin user-management area.
-- Keep deployment deferred while continuing local development.
-- Use Atlas only when transactional import behavior needs verification.
-
-Planned backend scope:
-
-- Admin-only user CRUD APIs.
-- Create users with role `ADMIN`, `MANAGER`, `TEAM_LEAD`, or `STAFF`.
-- Assign permitted plants to Team Leads and Staff.
-- Activate and deactivate users.
-- Revoke sessions when role, plant scope, or active status changes.
-- Prevent Admins from removing their own final admin access.
-- Protect `/admin/users` with backend `USERS_MANAGE` permission checks.
-
-Planned frontend scope:
-
-- Admin-only `/admin/users` page.
-- Page guards deny non-admin direct URL access.
-- User list with role, active status, and plant scope.
-- Create/edit user form.
-- Plant assignment controls for scoped roles.
-- Clear deactivate/reactivate and session-revocation behavior.
+- Admin-only user-management APIs.
+- Admin-only `/admin/users` page with frontend guards and backend `USERS_MANAGE` permission checks.
+- User creation for `ADMIN`, `MANAGER`, `TEAM_LEAD`, and `STAFF`.
+- Plant assignment for Team Leads and Staff.
+- User activation and deactivation.
+- Session revocation when role, plant scope, or active status changes.
+- Forced `/change-password` flow for temporary-password users.
+- Server-side `PASSWORD_CHANGE_REQUIRED` blocks for normal operational and admin APIs until the password is changed.
+- Final-admin protection, including self-demotion and self-deactivation blocks.
+- Redacted user-management and password-change audit records.
 
 Acceptance checks:
 
-- Admin can create, update, activate, and deactivate users.
+- Admin can create, update, activate, and deactivate permitted users.
 - Manager, Team Lead, and Staff cannot access `/admin/users` or user-management APIs.
 - Team Lead and Staff assignments are limited to selected plants.
 - Changing role, plant scope, or active status revokes existing sessions.
+- Temporary-password users are forced to `/change-password` before normal app access.
 - The last active Admin cannot be deactivated, demoted, or stripped of final admin access.
 - Inactive users cannot authenticate or continue existing sessions.
 - User-management audit records contain no passwords or secrets.
+
+## Phase 10 - Release Hardening And Production-Readiness Review
+
+Status: In progress.
+
+Implemented:
+
+- Playwright Chromium-only browser E2E setup.
+- E2E server hard-fails outside `NODE_ENV=test`.
+- E2E server rejects `MONGODB_URI` so Atlas cannot be used accidentally.
+- E2E runs against the in-memory test store only.
+- Playwright workers pinned to 1 because the test store is shared.
+- E2E test data uses unique prefixes and removes temporary import fixture files.
+- CI updated to Node 22, `npm ci`, lint, tests, client build, Chromium E2E, security check, and workspace audit.
+- `mongo:gate` remains separate and opt-in for Atlas transaction verification.
+
+Browser E2E coverage:
+
+- Admin creates a Team Lead and temporary password is never displayed after save.
+- Temporary-password user is forced to `/change-password`, including direct protected URL access.
+- Password change restores only assigned Team Lead Plant A access.
+- Planning, actuals, dashboard, reports, and secure export work through browser/API flow.
+- Team Lead Plant B manipulation returns no Plant B rows.
+- Staff and Manager authorization boundaries hold in browser navigation and API calls.
+- Plant-scope changes revoke existing sessions.
+- In-memory import confirmation fails closed when transaction support is unavailable.
+
+Remaining Phase 10 work:
+
+- Run the complete release gate after documentation updates.
+- Review accessibility, responsive layout, empty/loading/error states, and release limitations.
+- Keep deployment deferred until Render, Vercel, and production CORS/cookie checks are intentionally resumed.

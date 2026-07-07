@@ -23,6 +23,7 @@ export function UsersPage() {
   const [filters, setFilters] = useState({ search: "", role: "", isActive: "", sort: "email", page: 1 });
   const [state, setState] = useState({ loading: true, error: "" });
   const [editor, setEditor] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const totalPages = Math.max(1, Math.ceil(meta.total / meta.limit));
 
   const query = useMemo(() => {
@@ -54,7 +55,7 @@ export function UsersPage() {
     return () => {
       ignore = true;
     };
-  }, [query]);
+  }, [query, refreshKey]);
 
   function updateFilter(name, value) {
     setFilters((current) => ({ ...current, [name]: value, page: name === "page" ? Number(value) : 1 }));
@@ -67,14 +68,14 @@ export function UsersPage() {
     if (isEdit && !window.confirm("Changing role, status, or plant scope revokes this user's active sessions.")) return;
     await apiFetch(path, { method: isEdit ? "PATCH" : "POST", body: JSON.stringify(body) });
     setEditor(null);
-    updateFilter("page", filters.page);
+    setRefreshKey((current) => current + 1);
   }
 
   async function toggleStatus(row) {
     if (row.id === currentUser?.id) return;
     if (!window.confirm("Changing status revokes this user's active sessions.")) return;
     await apiFetch(`/users/${row.id}/status`, { method: "PATCH", body: JSON.stringify({ isActive: !row.isActive }) });
-    updateFilter("page", filters.page);
+    setRefreshKey((current) => current + 1);
   }
 
   return (

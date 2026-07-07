@@ -63,3 +63,33 @@ Error handling and logging:
 - Production errors omit stack traces and database details.
 - Audit logs exclude passwords, cookies, JWTs, database URIs, and raw uploaded file contents.
 - Authorization failures emit safe `ACCESS_DENIED` audit events.
+
+## Phase 10 Browser E2E
+
+Playwright is configured for Chromium only.
+
+Safeguards:
+
+- E2E must run with `NODE_ENV=test`.
+- The E2E server refuses any `MONGODB_URI`; Atlas and production databases are never used by browser tests.
+- The in-memory test store is used only.
+- Workers are pinned to 1 because state is shared.
+- Test data uses unique `E2E-*` prefixes.
+- Temporary import fixture files are removed after each test.
+- `mongo:gate` remains separate and opt-in for Atlas transaction proof.
+
+Release-hardening flows:
+
+- Admin user creation, forced password change, direct URL redirect, and Team Lead Plant A scope.
+- Planning, manual actual entry, dashboard, target-data report, and secure report export.
+- Role authorization regression for Admin, Manager, Team Lead, and Staff.
+- Team Lead Plant B manipulation returns no Plant B data.
+- Session revocation after plant-scope change.
+- In-memory import confirmation fails closed when transaction support is unavailable.
+
+Commands:
+
+```sh
+npm run test:e2e
+npm run test:e2e:ui
+```

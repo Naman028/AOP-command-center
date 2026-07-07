@@ -4,7 +4,7 @@ Secure MERN command center for planning, actuals, imports, reports, and plant-sc
 
 ## Phase Status
 
-**Current step: Phase 9 - User Management and Plant Scope Administration.**
+**Current step: Phase 10 - Release hardening and production-readiness review.**
 
 Completed:
 
@@ -18,6 +18,8 @@ Completed:
 - Secure Excel report export
 - Production deployment readiness configuration
 - MongoDB Atlas transaction/import confirmation
+- Admin user management, plant assignment, forced password change, session revocation, and final-admin protection
+- Chromium browser E2E release-hardening coverage
 
 Deferred:
 
@@ -27,11 +29,9 @@ Deferred:
 
 Next:
 
-- Admin user-management area
-- Role assignment for `ADMIN`, `MANAGER`, `TEAM_LEAD`, and `STAFF`
-- Plant assignment for Team Leads and Staff
-- User activation/deactivation with session revocation
-- Final-admin access protection
+- Release checklist review
+- Accessibility and responsive UI pass
+- Production deployment when ready
 
 ## Architecture
 
@@ -51,6 +51,7 @@ React must never connect directly to MongoDB. Database credentials and private s
 - [API Spec](docs/API_SPEC.md)
 - [Import Template](docs/IMPORT_TEMPLATE.md)
 - [Test Plan](docs/TEST_PLAN.md)
+- [Known Limitations](docs/KNOWN_LIMITATIONS.md)
 - [Project Progress](docs/PROJECT_PROGRESS.md)
 
 ## Development
@@ -78,5 +79,14 @@ Run all checks:
 ```sh
 npm run lint
 npm test
+npm run build --workspace client
+npm run test:e2e
 npm run security:check
+npm audit --workspaces
+```
+
+Run the Atlas transaction gate only when `server/.env` contains a safe Atlas `MONGODB_URI` for verification:
+
+```sh
+npm run mongo:gate
 ```

@@ -16,10 +16,13 @@
     "dev:stop": "node scripts/stop-dev-ports.js",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "mongo:gate": "node scripts/mongodb-persistence-gate.js",
     "security:check": "npm audit --workspaces --audit-level=high"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "concurrently": "^9.0.0"
   },
   "engines": {

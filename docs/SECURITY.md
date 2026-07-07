@@ -202,7 +202,15 @@ GitHub:
 - `.env.example` included.
 - Secret scanning enabled.
 - Dependency updates enabled.
-- CI runs lint, tests, and security checks.
+- CI runs lint, tests, client build, Chromium E2E, security checks, and workspace audit.
+- CI does not run `mongo:gate`; the Atlas transaction gate is opt-in because it requires an external database URI.
+
+E2E security:
+
+- Browser E2E runs only with `NODE_ENV=test`.
+- The E2E server rejects `MONGODB_URI` and uses the in-memory test store only.
+- Playwright uses Chromium only and one worker.
+- E2E test credentials, cookies, and secrets are test-local and must not come from `server/.env` or production deployments.
 
 MongoDB Atlas:
 

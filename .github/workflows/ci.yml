@@ -16,11 +16,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Lint
         run: npm run lint --if-present
@@ -28,5 +28,17 @@ jobs:
       - name: Test
         run: npm test --if-present
 
+      - name: Build client
+        run: npm run build --workspace client
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E
+        run: npm run test:e2e
+
       - name: Dependency audit
         run: npm run security:check --if-present
+
+      - name: Workspace audit
+        run: npm audit --workspaces

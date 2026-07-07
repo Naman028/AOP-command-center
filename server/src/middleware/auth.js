@@ -1,4 +1,4 @@
-import { forbidden, unauthorized } from "../utils/httpError.js";
+import { HttpError, forbidden, unauthorized } from "../utils/httpError.js";
 
 export function authenticate(sessionService) {
   return async (req, _res, next) => {
@@ -18,6 +18,10 @@ export function authenticate(sessionService) {
 
 export function requirePermission(permission) {
   return (req, _res, next) => {
+    if (req.user?.mustChangePassword) {
+      next(new HttpError(403, "Password change required", "PASSWORD_CHANGE_REQUIRED"));
+      return;
+    }
     if (!req.user?.permissions?.includes(permission)) {
       next(forbidden());
       return;

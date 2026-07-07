@@ -18,6 +18,7 @@ function publicUser(user) {
     name: normalized.name,
     role: normalized.role,
     assignedPlants: normalized.assignedPlants,
+    mustChangePassword: Boolean(normalized.mustChangePassword),
     permissions: permissionsForRole(normalized.role)
   };
 }

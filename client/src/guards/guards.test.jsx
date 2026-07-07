@@ -15,6 +15,7 @@ function renderProtected({ meResponse, path = "/admin/users", permission = "USER
         <SessionBootstrap>
           <Routes>
             <Route path="/login" element={<h1>Login</h1>} />
+            <Route path="/change-password" element={<h1>Change Password</h1>} />
             <Route path="/unauthorized" element={<h1>Unauthorized</h1>} />
             <Route
               path={path}
@@ -78,6 +79,24 @@ describe("route guards", () => {
     });
 
     await waitFor(() => expect(screen.getByText("Unauthorized")).toBeTruthy());
+  });
+
+  it("redirects temporary-password users from direct protected URLs to change password", async () => {
+    renderProtected({
+      path: "/dashboard",
+      permission: "DASHBOARD_VIEW",
+      meResponse: Response.json({
+        user: {
+          role: "STAFF",
+          assignedPlants: ["PLANT-A"],
+          mustChangePassword: true,
+          permissions: ["DASHBOARD_VIEW"]
+        }
+      })
+    });
+
+    await waitFor(() => expect(screen.getByText("Change Password")).toBeTruthy());
+    expect(screen.queryByText("Protected Content")).toBeNull();
   });
 
   it("renders for valid permission and assigned plant", async () => {

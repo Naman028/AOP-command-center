@@ -22,7 +22,7 @@ import {
   originAndCsrf,
   securityHeaders
 } from "./middleware/security.js";
-import { rejectUnsafeInput, validateObjectIdParam, validateSchema } from "./middleware/validate.js";
+import { rejectUnsafeInput, validateSchema } from "./middleware/validate.js";
 import { createAuditService } from "./services/auditService.js";
 import { createSessionService, normalizeUser } from "./services/sessionService.js";
 import { createSeedStore } from "./services/userStore.js";
@@ -33,6 +33,7 @@ import { createTargetRouter } from "./modules/targets/routes.js";
 import { createActualRouter } from "./modules/actuals/routes.js";
 import { createImportRouter } from "./modules/imports/routes.js";
 import { createReportingRouter } from "./modules/reports/routes.js";
+import { createUserRouter } from "./modules/users/routes.js";
 import { asyncHandler } from "./utils/asyncHandler.js";
 import { HttpError, forbidden } from "./utils/httpError.js";
 import { User } from "./models/User.js";
@@ -63,11 +64,6 @@ const reportQuerySchema = z.object({
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: z.string().min(12)
-}).strict();
-
-const updateUserSchema = z.object({
-  role: z.enum(["ADMIN", "MANAGER", "TEAM_LEAD", "STAFF"]).optional(),
-  isActive: z.boolean().optional()
 }).strict();
 
 const auditLogQuerySchema = z.object({
@@ -261,6 +257,7 @@ export function createApp(options = {}) {
   app.use("/api/targets", createTargetRouter({ store, sessionService, auditService }));
   app.use("/api/actuals", createActualRouter({ store, sessionService, auditService }));
   app.use("/api/imports", createImportRouter({ store, sessionService, auditService, config }));
+  app.use("/api/users", createUserRouter({ store, sessionService, auditService, config }));
 
   app.post(
     "/api/auth/login",
@@ -305,7 +302,11 @@ export function createApp(options = {}) {
       if (!valid) {
         throw new HttpError(400, "Current password is invalid", "INVALID_CURRENT_PASSWORD");
       }
-      await updateUserRecord(store, user.id, { passwordHash: await bcrypt.hash(req.body.newPassword, config.bcryptWorkFactor) });
+      await updateUserRecord(store, user.id, {
+        passwordHash: await bcrypt.hash(req.body.newPassword, config.bcryptWorkFactor),
+        mustChangePassword: false,
+        updatedBy: user.id
+      });
       await sessionService.revokeUserSessions(user.id);
       sessionService.clearAuthCookies(res);
       await auditService.record({ actorUserId: user.id, action: "CHANGE_PASSWORD", entityType: "User", entityId: user.id, requestId: req.id }, req);
@@ -466,38 +467,6 @@ export function createApp(options = {}) {
   );
 
   app.get(
-    "/api/users",
-    authenticate(sessionService),
-    requirePermission(PERMISSIONS.USERS_MANAGE),
-    sensitiveNoStore,
-    asyncHandler(async (_req, res) => {
-      res.json({ users: (await listUsers(store)).map(publicUserRecord) });
-    })
-  );
-
-  app.patch(
-    "/api/users/:userId",
-    authenticate(sessionService),
-    requirePermission(PERMISSIONS.USERS_MANAGE),
-    validateObjectIdParam("userId"),
-    validateSchema(updateUserSchema),
-    asyncHandler(async (req, res) => {
-      const user = await findUserById(store, req.params.userId);
-      if (!user) {
-        throw new HttpError(404, "User not found", "USER_NOT_FOUND");
-      }
-      const before = { role: user.role, isActive: user.isActive };
-      const updates = {};
-      if (req.body.role) updates.role = req.body.role;
-      if (typeof req.body.isActive === "boolean") updates.isActive = req.body.isActive;
-      const updatedUser = await updateUserRecord(store, user.id, updates);
-      await sessionService.revokeUserSessions(user.id);
-      auditService.record({ actorUserId: req.user.id, action: req.body.role ? "CHANGE_ROLE" : "DEACTIVATE_USER", entityType: "User", entityId: user.id, before, after: { role: updatedUser.role, isActive: updatedUser.isActive }, requestId: req.id });
-      res.json({ user: sessionService.publicUser(updatedUser) });
-    })
-  );
-
-  app.get(
     "/api/audit-logs",
     authenticate(sessionService),
     requirePermission(PERMISSIONS.AUDIT_LOGS_VIEW),
@@ -621,13 +590,6 @@ async function findActiveUserById(store, id) {
   return user?.isActive ? user : null;
 }
 
-async function listUsers(store) {
-  if (store.useMongo) {
-    return (await User.find({}).sort({ email: 1 }).lean()).map(normalizeUser);
-  }
-  return store.users;
-}
-
 async function updateUserRecord(store, id, updates) {
   if (store.useMongo) {
     return normalizeUser(await User.findByIdAndUpdate(id, updates, { new: true }).lean());
@@ -635,12 +597,4 @@ async function updateUserRecord(store, id, updates) {
   const user = store.users.find((candidate) => candidate.id === id);
   Object.assign(user, updates);
   return user;
-}
-
-function publicUserRecord(user) {
-  const publicUser = { ...normalizeUser(user) };
-  delete publicUser.passwordHash;
-  delete publicUser._id;
-  delete publicUser.__v;
-  return publicUser;
 }

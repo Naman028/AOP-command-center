@@ -3,7 +3,7 @@ import { useAuth } from "../auth/AuthProvider.jsx";
 import { LoadingScreen } from "../components/common/LoadingScreen.jsx";
 
 export function RequireAuth({ children }) {
-  const { status, isAuthenticated } = useAuth();
+  const { status, isAuthenticated, user } = useAuth();
   const location = useLocation();
 
   if (status === "checking") {
@@ -11,6 +11,12 @@ export function RequireAuth({ children }) {
   }
   if (!isAuthenticated) {
     return <Navigate to={`/login?returnTo=${encodeURIComponent(location.pathname)}`} replace />;
+  }
+  if (user?.mustChangePassword && location.pathname !== "/change-password") {
+    return <Navigate to="/change-password" replace />;
+  }
+  if (!user?.mustChangePassword && location.pathname === "/change-password") {
+    return <Navigate to="/dashboard" replace />;
   }
   return children;
 }

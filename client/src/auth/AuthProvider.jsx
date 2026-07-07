@@ -35,14 +35,24 @@ export function AuthProvider({ children }) {
     setStatus("anonymous");
   }, []);
 
+  const changePassword = useCallback(async (payload) => {
+    await apiFetch("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    setUser(null);
+    setStatus("anonymous");
+  }, []);
+
   const value = useMemo(() => ({
     status,
     user,
     bootstrap,
+    changePassword,
     login,
     logout,
     isAuthenticated: status === "authenticated"
-  }), [bootstrap, login, logout, status, user]);
+  }), [bootstrap, changePassword, login, logout, status, user]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

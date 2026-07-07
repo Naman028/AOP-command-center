@@ -23,10 +23,14 @@ function app(config = {}, store) {
 }
 
 async function login(application, email) {
+  return loginWithPassword(application, email, "Password123!");
+}
+
+async function loginWithPassword(application, email, password) {
   const response = await request(application)
     .post("/api/auth/login")
     .set("Origin", "http://localhost:5173")
-    .send({ email, password: "Password123!" });
+    .send({ email, password });
   const cookies = response.headers["set-cookie"];
   const csrf = cookies.find((cookie) => cookie.startsWith("csrfToken=")).split(";")[0].split("=")[1];
   return { cookies, csrf: decodeURIComponent(csrf), body: response.body };
@@ -229,6 +233,7 @@ describe("security architecture", () => {
       .send({ role: "STAFF" });
     expect(roleChange.status).toBe(200);
     expect(await request(application).get("/api/auth/me").set("Cookie", lead.cookies)).toMatchObject({ status: 401 });
+    expect(await request(application).post("/api/auth/refresh").set("Origin", "http://localhost:5173").set("Cookie", lead.cookies)).toMatchObject({ status: 401 });
 
     const manager = await login(application, "manager@aop.local");
     const deactivate = await request(application)
@@ -239,6 +244,242 @@ describe("security architecture", () => {
       .send({ isActive: false });
     expect(deactivate.status).toBe(200);
     expect(await request(application).get("/api/auth/me").set("Cookie", manager.cookies)).toMatchObject({ status: 401 });
+    expect(await request(application).post("/api/auth/refresh").set("Origin", "http://localhost:5173").set("Cookie", manager.cookies)).toMatchObject({ status: 401 });
+  });
+
+  it("supports admin user management with scoped plant assignment and safe responses", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+
+    const created = await request(application)
+      .post("/api/users")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({
+        email: "new.lead@aop.local",
+        name: "New Lead",
+        role: "TEAM_LEAD",
+        temporaryPassword: "Temporary123!",
+        assignedPlants: ["100000000000000000000001"]
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.user).toMatchObject({
+      email: "new.lead@aop.local",
+      role: "TEAM_LEAD",
+      assignedPlants: ["PLANT-A"],
+      mustChangePassword: true
+    });
+    expect(JSON.stringify(created.body)).not.toContain("passwordHash");
+    expect(JSON.stringify(created.body)).not.toContain("Temporary123!");
+
+    const duplicate = await request(application)
+      .post("/api/users")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({
+        email: "NEW.LEAD@aop.local",
+        name: "Duplicate Lead",
+        role: "STAFF",
+        temporaryPassword: "Temporary123!"
+      });
+    expect(duplicate.status).toBe(409);
+
+    const inactivePlant = await request(application)
+      .post("/api/users")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({
+        email: "bad.scope@aop.local",
+        name: "Bad Scope",
+        role: "STAFF",
+        temporaryPassword: "Temporary123!",
+        assignedPlants: ["100000000000000000000003"]
+      });
+    expect(inactivePlant.status).toBe(400);
+
+    const listed = await request(application).get("/api/users?search=new.lead&role=TEAM_LEAD").set("Cookie", admin.cookies);
+    expect(listed.status).toBe(200);
+    expect(listed.body.rows).toHaveLength(1);
+    expect(JSON.stringify(listed.body)).not.toContain("passwordHash");
+  });
+
+  it("forces newly created users to change password before protected API access", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+
+    const created = await request(application)
+      .post("/api/users")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({
+        email: "must.change@aop.local",
+        name: "Must Change",
+        role: "TEAM_LEAD",
+        temporaryPassword: "Temporary123!",
+        assignedPlants: ["100000000000000000000001"]
+      });
+    expect(created.status).toBe(201);
+
+    const pending = await loginWithPassword(application, "must.change@aop.local", "Temporary123!");
+    expect(pending.body.user.mustChangePassword).toBe(true);
+
+    const blockedRequests = [
+      request(application).get("/api/dashboard").set("Cookie", pending.cookies),
+      request(application).get("/api/reports/target-data?financialYear=300000000000000000000001").set("Cookie", pending.cookies),
+      request(application).get("/api/targets").set("Cookie", pending.cookies),
+      request(application).get("/api/actuals").set("Cookie", pending.cookies),
+      request(application).get("/api/imports/history").set("Cookie", pending.cookies),
+      request(application).post("/api/reports/target-data/export")
+        .set("Origin", "http://localhost:5173")
+        .set("X-CSRF-Token", pending.csrf)
+        .set("Cookie", pending.cookies)
+        .send(exportBody),
+      request(application).get("/api/users").set("Cookie", pending.cookies)
+    ];
+    for (const blocked of await Promise.all(blockedRequests)) {
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.error.code).toBe("PASSWORD_CHANGE_REQUIRED");
+    }
+
+    const me = await request(application).get("/api/auth/me").set("Cookie", pending.cookies);
+    expect(me.status).toBe(200);
+    expect(me.body.user.mustChangePassword).toBe(true);
+
+    const changed = await request(application)
+      .post("/api/auth/change-password")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", pending.csrf)
+      .set("Cookie", pending.cookies)
+      .send({ currentPassword: "Temporary123!", newPassword: "ChangedPassword123!" });
+    expect(changed.status).toBe(200);
+    expect(await request(application).get("/api/auth/me").set("Cookie", pending.cookies)).toMatchObject({ status: 401 });
+
+    const refreshedOld = await request(application)
+      .post("/api/auth/refresh")
+      .set("Origin", "http://localhost:5173")
+      .set("Cookie", pending.cookies);
+    expect(refreshedOld.status).toBe(401);
+
+    const active = await loginWithPassword(application, "must.change@aop.local", "ChangedPassword123!");
+    expect(active.body.user.mustChangePassword).toBe(false);
+    expect(active.body.user.permissions).toContain("DASHBOARD_VIEW");
+    const dashboard = await request(application).get("/api/dashboard/overview?financialYear=300000000000000000000001").set("Cookie", active.cookies);
+    expect(dashboard.status).toBe(200);
+    expect(JSON.stringify(dashboard.body)).toContain("PLANT-A");
+    expect(JSON.stringify(dashboard.body)).not.toContain("PLANT-B");
+
+    const audit = await request(application)
+      .get("/api/audit-logs?action=CHANGE_PASSWORD&entityType=User")
+      .set("Cookie", admin.cookies);
+    expect(audit.status).toBe(200);
+    expect(audit.body.rows.some((row) => row.entityId === created.body.user.id)).toBe(true);
+    expect(JSON.stringify(audit.body)).not.toContain("Temporary123!");
+    expect(JSON.stringify(audit.body)).not.toContain("ChangedPassword123!");
+    expect(JSON.stringify(audit.body)).not.toContain("passwordHash");
+  });
+
+  it("protects self admin access and revokes sessions on plant-scope changes", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+    const lead = await login(application, "lead-a@aop.local");
+
+    const secondAdmin = await request(application)
+      .post("/api/users")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({
+        email: "self.guard.admin@aop.local",
+        name: "Self Guard Admin",
+        role: "ADMIN",
+        temporaryPassword: "Temporary123!"
+      });
+    expect(secondAdmin.status).toBe(201);
+
+    const selfDemote = await request(application)
+      .patch("/api/users/000000000000000000000001")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ role: "MANAGER" });
+    expect(selfDemote.status).toBe(400);
+    expect(selfDemote.body.error.code).toBe("SELF_ADMIN_CHANGE_DENIED");
+
+    const selfDeactivate = await request(application)
+      .patch("/api/users/000000000000000000000001/status")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ isActive: false });
+    expect(selfDeactivate.status).toBe(400);
+
+    const scopeChange = await request(application)
+      .patch("/api/users/000000000000000000000003/plant-scope")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ assignedPlants: [] });
+    expect(scopeChange.status).toBe(200);
+    expect(scopeChange.body.user.assignedPlants).toEqual([]);
+    expect(await request(application).get("/api/auth/me").set("Cookie", lead.cookies)).toMatchObject({ status: 401 });
+    expect(await request(application).post("/api/auth/refresh").set("Origin", "http://localhost:5173").set("Cookie", lead.cookies)).toMatchObject({ status: 401 });
+
+    const audit = await request(application)
+      .get("/api/audit-logs?action=REVOKE_USER_SESSIONS&entityType=User")
+      .set("Cookie", admin.cookies);
+    expect(audit.status).toBe(200);
+    expect(audit.body.rows.some((row) => row.entityId === "000000000000000000000003")).toBe(true);
+    expect(JSON.stringify(audit.body)).not.toContain("passwordHash");
+  });
+
+  it("enforces final-admin protection while allowing another active Admin to be managed", async () => {
+    const application = app();
+    const admin = await login(application, "admin@aop.local");
+
+    const secondAdmin = await request(application)
+      .post("/api/users")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({
+        email: "second.admin@aop.local",
+        name: "Second Admin",
+        role: "ADMIN",
+        temporaryPassword: "Temporary123!"
+      });
+    expect(secondAdmin.status).toBe(201);
+
+    const demoteSecond = await request(application)
+      .patch(`/api/users/${secondAdmin.body.user.id}`)
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ role: "MANAGER" });
+    expect(demoteSecond.status).toBe(200);
+    expect(demoteSecond.body.user.role).toBe("MANAGER");
+
+    const finalDemote = await request(application)
+      .patch("/api/users/000000000000000000000001")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ role: "MANAGER" });
+    expect(finalDemote.status).toBe(400);
+    expect(finalDemote.body.error.code).toBe("FINAL_ADMIN_REQUIRED");
+
+    const finalDeactivate = await request(application)
+      .patch("/api/users/000000000000000000000001/status")
+      .set("Origin", "http://localhost:5173")
+      .set("X-CSRF-Token", admin.csrf)
+      .set("Cookie", admin.cookies)
+      .send({ isActive: false });
+    expect(finalDeactivate.status).toBe(400);
+    expect(finalDeactivate.body.error.code).toBe("FINAL_ADMIN_REQUIRED");
   });
 
   it("returns 401 for missing auth and 403 for authenticated forbidden access", async () => {

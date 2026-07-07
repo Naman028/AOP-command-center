@@ -14,8 +14,8 @@ export function LoginPage() {
     setError("");
     const form = new FormData(event.currentTarget);
     try {
-      await login({ email: form.get("email"), password: form.get("password") });
-      navigate(returnTo, { replace: true });
+      const user = await login({ email: form.get("email"), password: form.get("password") });
+      navigate(user.mustChangePassword ? "/change-password" : returnTo, { replace: true });
     } catch {
       setError("Invalid email or password");
     }

@@ -8,9 +8,14 @@ const userSchema = new mongoose.Schema(
     passwordHash: { type: String, required: true },
     role: { type: String, enum: Object.values(ROLES), required: true },
     assignedPlants: [{ type: String, trim: true }],
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    mustChangePassword: { type: Boolean, default: false },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
   },
   { timestamps: true }
 );
+
+userSchema.index({ role: 1, isActive: 1 });
 
 export const User = mongoose.models.User ?? mongoose.model("User", userSchema);

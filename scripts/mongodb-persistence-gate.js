@@ -12,6 +12,7 @@ import { loadConfig } from "../server/src/config/env.js";
 import { Actual } from "../server/src/models/Actual.js";
 import { AuditLog } from "../server/src/models/AuditLog.js";
 import { FinancialYear } from "../server/src/models/FinancialYear.js";
+import { ImportBatch } from "../server/src/models/ImportBatch.js";
 import { Material } from "../server/src/models/Material.js";
 import { Plant } from "../server/src/models/Plant.js";
 import { Target } from "../server/src/models/Target.js";
@@ -19,6 +20,7 @@ import { User } from "../server/src/models/User.js";
 import { startServer } from "../server/src/server.js";
 
 const origin = process.env.CLIENT_ORIGINS?.split(",")[0] ?? "http://localhost:5173";
+const gatePassword = `Gate-${crypto.randomUUID()}!Aa1`;
 
 function requireMongoUri() {
   if (!process.env.MONGODB_URI) {
@@ -30,7 +32,7 @@ async function login(application, email = "admin@aop.local") {
   const response = await request(application)
     .post("/api/auth/login")
     .set("Origin", origin)
-    .send({ email, password: "Password123!" });
+    .send({ email, password: gatePassword });
 
   assert.equal(response.status, 200, response.text);
   const cookies = response.headers["set-cookie"];
@@ -145,7 +147,7 @@ async function closeGateApp(server) {
 }
 
 async function ensureGateUsers() {
-  const passwordHash = await bcrypt.hash("Password123!", 12);
+  const passwordHash = await bcrypt.hash(gatePassword, 12);
   const users = [
     {
       _id: "000000000000000000000001",
@@ -196,6 +198,15 @@ async function ensureGateUsers() {
       { upsert: true }
     );
   }
+}
+
+async function verifyDefaultDemoCredentialsRejected(application) {
+  const response = await request(application)
+    .post("/api/auth/login")
+    .set("Origin", origin)
+    .send({ email: "admin@aop.local", password: "Password123!" });
+
+  assert.equal(response.status, 401, response.text);
 }
 
 async function verifyIndexes() {
@@ -484,19 +495,33 @@ async function run() {
   process.stdout.write("[PASS] Team Lead A export contains no Plant B data\n");
   process.stdout.write("[PASS] Dashboard/report API response survives backend restart\n");
 
+  await verifyDefaultDemoCredentialsRejected(gate.app);
+  process.stdout.write("[PASS] Default demo credentials cannot authenticate\n");
+
   const fixtureDir = await fs.mkdtemp(path.join(os.tmpdir(), "aop-gate-import-"));
-  const importPath = path.join(fixtureDir, "actual-import.csv");
-  await fs.writeFile(importPath, `plantCode,financialYearLabel,month,metricType,category,materialCode,actualValue,unit,notes\n${code},${financialYear.label},3,TURNOVER,${code},,5,USD,gate\n`);
+  const validImportPath = path.join(fixtureDir, "actual-import-valid.csv");
+  const importCategoryA = `${code}-IMPORT-A`;
+  const importCategoryB = `${code}-IMPORT-B`;
+  await fs.writeFile(
+    validImportPath,
+    [
+      "plantCode,financialYearLabel,month,metricType,category,materialCode,actualValue,unit,notes",
+      `${code},${financialYear.label},12,TURNOVER,${importCategoryA},,5,USD,gate-valid-a`,
+      `${code},${financialYear.label},12,TURNOVER,${importCategoryB},,7,USD,gate-valid-b`
+    ].join("\n")
+  );
   const importPreview = await request(gate.app)
     .post("/api/imports/preview")
     .set("Origin", origin)
     .set("X-CSRF-Token", restartedAuth.csrf)
     .set("Cookie", restartedAuth.cookies)
-    .attach("file", importPath);
+    .attach("file", validImportPath);
 
   assert.equal(importPreview.status, 201, importPreview.text);
-  assert.equal(importPreview.body.batch.validRows, 1);
-  process.stdout.write("✓ Import preview creates a staged batch\n");
+  assert.equal(importPreview.body.batch.validRows, 2);
+  assert.equal(importPreview.body.transactionAvailable, true, "Atlas gate requires transaction capability");
+  process.stdout.write("[PASS] Transaction capability is available\n");
+  process.stdout.write("[PASS] Import preview creates a staged two-row batch\n");
 
   const importConfirm = await request(gate.app)
     .post(`/api/imports/${importPreview.body.batch.id}/confirm`)
@@ -504,14 +529,90 @@ async function run() {
     .set("X-CSRF-Token", restartedAuth.csrf)
     .set("Cookie", restartedAuth.cookies);
 
-  if (importPreview.body.transactionAvailable) {
-    assert.equal(importConfirm.status, 200, importConfirm.text);
-    process.stdout.write("✓ Transaction-capable import confirmation succeeds\n");
-  } else {
-    assert.equal(importConfirm.status, 409, importConfirm.text);
-    assert.equal(importConfirm.body.error.code, "TRANSACTIONAL_IMPORT_REQUIRED");
-    process.stdout.write("✓ Transaction-unavailable import confirmation fails closed\n");
-  }
+  assert.equal(importConfirm.status, 200, importConfirm.text);
+  assert.equal(importConfirm.body.status, "IMPORTED");
+  assert.equal(importConfirm.body.importedRows, 2);
+  process.stdout.write("[PASS] Valid two-row import confirms successfully\n");
+
+  const importedActuals = await Actual.find({ importBatch: importPreview.body.batch.id }).lean();
+  assert.equal(importedActuals.length, 2, "Expected two Actual records for the imported batch");
+  assert.ok(importedActuals.every((actual) => actual.source === "EXCEL_IMPORT"), "Imported actuals must use EXCEL_IMPORT source");
+  assert.ok(importedActuals.some((actual) => actual.category === importCategoryA));
+  assert.ok(importedActuals.some((actual) => actual.category === importCategoryB));
+  process.stdout.write("[PASS] Both Actual records are inserted with EXCEL_IMPORT source\n");
+
+  const importedBatch = await ImportBatch.findById(importPreview.body.batch.id).lean();
+  assert.equal(importedBatch.status, "IMPORTED");
+  assert.ok(importedBatch.importedAt, "Imported batch timestamp missing");
+  process.stdout.write("[PASS] ImportBatch is marked IMPORTED\n");
+
+  const confirmedAudit = await AuditLog.findOne({ action: "IMPORT_CONFIRMED", entityType: "ImportBatch", entityId: importPreview.body.batch.id }).lean();
+  assert.ok(confirmedAudit, "IMPORT_CONFIRMED audit record was not persisted");
+  assert.equal(confirmedAudit.after.importedRows, 2);
+  process.stdout.write("[PASS] IMPORT_CONFIRMED audit record persists\n");
+
+  const failingImportPath = path.join(fixtureDir, "actual-import-conflict.csv");
+  const rollbackCategoryA = `${code}-ROLLBACK-A`;
+  const rollbackCategoryB = `${code}-ROLLBACK-B`;
+  await fs.writeFile(
+    failingImportPath,
+    [
+      "plantCode,financialYearLabel,month,metricType,category,materialCode,actualValue,unit,notes",
+      `${code},${financialYear.label},12,TURNOVER,${rollbackCategoryA},,11,USD,gate-rollback-a`,
+      `${code},${financialYear.label},12,TURNOVER,${rollbackCategoryB},,13,USD,gate-rollback-b`
+    ].join("\n")
+  );
+  const failingPreview = await request(gate.app)
+    .post("/api/imports/preview")
+    .set("Origin", origin)
+    .set("X-CSRF-Token", restartedAuth.csrf)
+    .set("Cookie", restartedAuth.cookies)
+    .attach("file", failingImportPath);
+
+  assert.equal(failingPreview.status, 201, failingPreview.text);
+  assert.equal(failingPreview.body.batch.validRows, 2);
+  assert.equal(failingPreview.body.transactionAvailable, true);
+
+  await Actual.create({
+    plant: plantId,
+    financialYear: financialYearId,
+    month: 12,
+    metricType: "TURNOVER",
+    category: rollbackCategoryB,
+    actualValue: 99,
+    unit: "USD",
+    source: "MANUAL",
+    isActive: true,
+    createdBy: "000000000000000000000001",
+    updatedBy: "000000000000000000000001"
+  });
+
+  const failingConfirm = await request(gate.app)
+    .post(`/api/imports/${failingPreview.body.batch.id}/confirm`)
+    .set("Origin", origin)
+    .set("X-CSRF-Token", restartedAuth.csrf)
+    .set("Cookie", restartedAuth.cookies);
+
+  assert.equal(failingConfirm.status, 409, failingConfirm.text);
+  assert.equal(failingConfirm.body.error.code, "IMPORT_TRANSACTION_FAILED");
+  assert.equal(await Actual.countDocuments({ importBatch: failingPreview.body.batch.id }), 0, "Failed batch inserted imported actuals");
+  assert.equal(await Actual.countDocuments({ plant: plantId, financialYear: financialYearId, category: rollbackCategoryA }), 0, "Valid row from failed batch was inserted");
+  const failedBatch = await ImportBatch.findById(failingPreview.body.batch.id).lean();
+  assert.equal(failedBatch.status, "FAILED");
+  assert.equal(failedBatch.invalidRows, 2);
+  const failedAudit = await AuditLog.findOne({ action: "IMPORT_FAILED", entityType: "ImportBatch", entityId: failingPreview.body.batch.id }).lean();
+  assert.ok(failedAudit, "IMPORT_FAILED audit record was not persisted");
+  process.stdout.write("[PASS] One valid row + one conflicting row imports zero rows\n");
+  process.stdout.write("[PASS] Failed batch has correct failed status and audit event\n");
+
+  await closeGateApp(gate.server);
+  gate = await startGateApp();
+  const postImportAuth = await login(gate.app);
+  assert.ok(postImportAuth.cookies.length > 0);
+  assert.equal(await Actual.countDocuments({ importBatch: importPreview.body.batch.id, source: "EXCEL_IMPORT" }), 2);
+  assert.equal((await ImportBatch.findById(importPreview.body.batch.id).lean())?.status, "IMPORTED");
+  assert.ok(await AuditLog.findOne({ action: "IMPORT_CONFIRMED", entityType: "ImportBatch", entityId: importPreview.body.batch.id }).lean());
+  process.stdout.write("[PASS] Restart preserves imported actuals, ImportBatch, and audit records\n");
   await fs.rm(fixtureDir, { recursive: true, force: true });
 
   const reportExplain = await Target.find({

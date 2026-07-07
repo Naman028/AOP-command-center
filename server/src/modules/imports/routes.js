@@ -21,6 +21,7 @@ import { Target } from "../../models/Target.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { forbidden, HttpError } from "../../utils/httpError.js";
 import { containsUnsafeMongoOperator } from "../../utils/sanitize.js";
+import { isDuplicateKeyError } from "../masterData/common.js";
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const uploadDir = path.resolve(appRoot, "storage", "temporary-uploads");
@@ -121,8 +122,14 @@ export function createImportRouter({ store, sessionService, auditService, config
         await ImportBatch.updateOne({ _id: batch.id }, { status: "IMPORTED", importedAt: new Date() }, { session });
       });
     } catch (error) {
-      await auditService.record({ actorUserId: req.user.id, action: "IMPORT_FAILED", entityType: "ImportBatch", entityId: batch.id, after: { reason: "transaction_failed" }, requestId: req.id }, req);
-      throw error;
+      const reason = isDuplicateKeyError(error) ? "duplicate_actual" : "transaction_failed";
+      await markBatch(store, batch, {
+        status: "FAILED",
+        invalidRows: batch.stagedRows.length,
+        validationErrors: [{ rowNumber: null, errors: [reason] }]
+      });
+      await auditService.record({ actorUserId: req.user.id, action: "IMPORT_FAILED", entityType: "ImportBatch", entityId: batch.id, after: { reason }, requestId: req.id }, req);
+      throw new HttpError(409, "Import transaction failed without inserting rows", "IMPORT_TRANSACTION_FAILED");
     } finally {
       await session.endSession();
     }

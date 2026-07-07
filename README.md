@@ -4,7 +4,7 @@ Secure MERN command center for planning, actuals, imports, reports, and plant-sc
 
 ## Phase Status
 
-**Current step: Phase 8.0 - Production deployment readiness complete.**
+**Current step: Phase 9 - User Management and Plant Scope Administration.**
 
 Completed:
 
@@ -17,13 +17,21 @@ Completed:
 - Dashboard and reporting calculations
 - Secure Excel report export
 - Production deployment readiness configuration
-
-Next:
-
 - MongoDB Atlas transaction/import confirmation
+
+Deferred:
+
 - Render backend deployment
 - Vercel frontend deployment
 - Production end-to-end verification
+
+Next:
+
+- Admin user-management area
+- Role assignment for `ADMIN`, `MANAGER`, `TEAM_LEAD`, and `STAFF`
+- Plant assignment for Team Leads and Staff
+- User activation/deactivation with session revocation
+- Final-admin access protection
 
 ## Architecture
 

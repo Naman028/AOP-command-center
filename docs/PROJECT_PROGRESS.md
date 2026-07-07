@@ -129,7 +129,25 @@ Test matrix:
 
 ## Phase 8 - Production Deployment And Replica-Set Import Confirmation
 
-Status: Phase 8.0 deployment-readiness configuration in progress.
+Status: Phase 8.1 Atlas transaction/import gate complete. Phase 8.2 through Phase 8.4 deployment work is deferred.
+
+Completed:
+
+- Phase 8.0 production deployment readiness configuration.
+- Phase 8.1 Atlas transaction/import confirmation.
+- Atlas gate proves transaction capability is available.
+- Valid two-row import confirms successfully and inserts both `EXCEL_IMPORT` Actual records.
+- `ImportBatch` is marked `IMPORTED` after successful confirmation.
+- `IMPORT_CONFIRMED` audit records persist.
+- A conflicting import confirms zero imported Actual records.
+- Failed import batches are marked `FAILED` and write `IMPORT_FAILED`.
+- Default demo credentials cannot authenticate.
+
+Deferred:
+
+- Phase 8.2 Render backend deployment.
+- Phase 8.3 Vercel frontend deployment and exact CORS/cookie verification.
+- Phase 8.4 production end-to-end verification.
 
 Deployment choice:
 
@@ -191,3 +209,42 @@ Mandatory Phase 8 production checks:
 - Successful import confirmation must insert all rows.
 - One invalid or conflicting row must insert zero rows.
 - Atlas network access must be narrowed to Render outbound CIDR ranges or dedicated outbound IPs after initial testing.
+
+## Phase 9 - User Management And Plant Scope Administration
+
+Status: Next local-development phase.
+
+Objective:
+
+- Replace seeded-test-user dependence with a usable Admin user-management area.
+- Keep deployment deferred while continuing local development.
+- Use Atlas only when transactional import behavior needs verification.
+
+Planned backend scope:
+
+- Admin-only user CRUD APIs.
+- Create users with role `ADMIN`, `MANAGER`, `TEAM_LEAD`, or `STAFF`.
+- Assign permitted plants to Team Leads and Staff.
+- Activate and deactivate users.
+- Revoke sessions when role, plant scope, or active status changes.
+- Prevent Admins from removing their own final admin access.
+- Protect `/admin/users` with backend `USERS_MANAGE` permission checks.
+
+Planned frontend scope:
+
+- Admin-only `/admin/users` page.
+- Page guards deny non-admin direct URL access.
+- User list with role, active status, and plant scope.
+- Create/edit user form.
+- Plant assignment controls for scoped roles.
+- Clear deactivate/reactivate and session-revocation behavior.
+
+Acceptance checks:
+
+- Admin can create, update, activate, and deactivate users.
+- Manager, Team Lead, and Staff cannot access `/admin/users` or user-management APIs.
+- Team Lead and Staff assignments are limited to selected plants.
+- Changing role, plant scope, or active status revokes existing sessions.
+- The last active Admin cannot be deactivated, demoted, or stripped of final admin access.
+- Inactive users cannot authenticate or continue existing sessions.
+- User-management audit records contain no passwords or secrets.

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthProvider.jsx";
+import { PasswordInput } from "../../components/common/PasswordInput.jsx";
 
 export function ChangePasswordPage() {
   const { changePassword, logout } = useAuth();
   const navigate = useNavigate();
   const [error, setError] = useState("");
+  const [visibleFields, setVisibleFields] = useState({});
 
   async function onSubmit(event) {
     event.preventDefault();
@@ -32,21 +34,42 @@ export function ChangePasswordPage() {
     navigate("/login", { replace: true });
   }
 
+  function toggleField(name) {
+    setVisibleFields((current) => ({ ...current, [name]: !current[name] }));
+  }
+
   return (
     <main className="login-page">
       <form className="login-panel" onSubmit={onSubmit}>
         <h1>Change Password</h1>
         <label>
           Current password
-          <input name="currentPassword" type="password" autoComplete="current-password" required />
+          <PasswordInput
+            name="currentPassword"
+            autoComplete="current-password"
+            visible={Boolean(visibleFields.currentPassword)}
+            onToggle={() => toggleField("currentPassword")}
+          />
         </label>
         <label>
           New password
-          <input name="newPassword" type="password" autoComplete="new-password" required minLength={12} />
+          <PasswordInput
+            name="newPassword"
+            autoComplete="new-password"
+            visible={Boolean(visibleFields.newPassword)}
+            onToggle={() => toggleField("newPassword")}
+            minLength={12}
+          />
         </label>
         <label>
           Confirm new password
-          <input name="confirmPassword" type="password" autoComplete="new-password" required minLength={12} />
+          <PasswordInput
+            name="confirmPassword"
+            autoComplete="new-password"
+            visible={Boolean(visibleFields.confirmPassword)}
+            onToggle={() => toggleField("confirmPassword")}
+            minLength={12}
+          />
         </label>
         {error && <p className="form-error">{error}</p>}
         <button type="submit">Update password</button>

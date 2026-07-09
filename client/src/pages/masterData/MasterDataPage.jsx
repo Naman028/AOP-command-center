@@ -84,8 +84,7 @@ export function MasterDataPage({ type }) {
   async function saveRecord(values) {
     const method = values.id ? "PATCH" : "POST";
     const path = values.id ? `${config.endpoint}/${values.id}` : config.endpoint;
-    const body = { ...values };
-    delete body.id;
+    const body = buildMasterDataPayload(config, values);
     await apiFetch(path, { method, body: JSON.stringify(body) });
     setEditor(null);
     updateFilter("page", filters.page);
@@ -167,6 +166,13 @@ export function MasterDataPage({ type }) {
   );
 }
 
+function buildMasterDataPayload(config, values) {
+  return {
+    ...Object.fromEntries(config.fields.map(([field]) => [field, values[field]])),
+    isActive: Boolean(values.isActive)
+  };
+}
+
 function MasterDataModal({ config, initial, onClose, onSave }) {
   const [values, setValues] = useState(initial);
   const [error, setError] = useState("");
@@ -184,28 +190,33 @@ function MasterDataModal({ config, initial, onClose, onSave }) {
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <form className="modal" onSubmit={submit}>
-        <h3>{values.id ? "Edit" : "Create"} {config.title}</h3>
-        {config.fields.map(([field, label]) => (
-          <label key={field}>
-            {label}
+        <header className="modal-header">
+          <h3>{values.id ? "Edit" : "Create"} {config.title}</h3>
+          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>x</button>
+        </header>
+        <div className="modal-body">
+          {config.fields.map(([field, label]) => (
+            <label key={field}>
+              {label}
+              <input
+                name={field}
+                type={field.toLowerCase().includes("date") ? "date" : "text"}
+                value={values[field] ?? ""}
+                onChange={(event) => setValues((current) => ({ ...current, [field]: event.target.value }))}
+                required
+              />
+            </label>
+          ))}
+          <label className="check-row">
             <input
-              name={field}
-              type={field.toLowerCase().includes("date") ? "date" : "text"}
-              value={values[field] ?? ""}
-              onChange={(event) => setValues((current) => ({ ...current, [field]: event.target.value }))}
-              required
+              type="checkbox"
+              checked={Boolean(values.isActive)}
+              onChange={(event) => setValues((current) => ({ ...current, isActive: event.target.checked }))}
             />
+            Active
           </label>
-        ))}
-        <label className="check-row">
-          <input
-            type="checkbox"
-            checked={Boolean(values.isActive)}
-            onChange={(event) => setValues((current) => ({ ...current, isActive: event.target.checked }))}
-          />
-          Active
-        </label>
-        {error && <p className="form-error">{error}</p>}
+          {error && <p className="form-error modal-error">{error}</p>}
+        </div>
         <div className="modal-actions">
           <button type="button" onClick={onClose}>Cancel</button>
           <button type="submit">Save</button>

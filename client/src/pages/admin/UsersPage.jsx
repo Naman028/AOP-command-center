@@ -182,45 +182,50 @@ function UserModal({ initial, plants, currentUserId, onClose, onSave }) {
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <form className="modal" onSubmit={submit}>
-        <h3>{isEdit ? "Edit" : "Create"} User</h3>
-        <label>
-          Name
-          <input value={values.name} onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))} required />
-        </label>
-        <label>
-          Email
-          <input type="email" value={values.email} onChange={(event) => setValues((current) => ({ ...current, email: event.target.value }))} required />
-        </label>
-        {!isEdit && (
+        <header className="modal-header">
+          <h3>{isEdit ? "Edit" : "Create"} User</h3>
+          <button type="button" className="modal-close" aria-label="Close" onClick={onClose}>x</button>
+        </header>
+        <div className="modal-body">
           <label>
-            Temporary password
-            <input type="password" value={values.temporaryPassword} onChange={(event) => setValues((current) => ({ ...current, temporaryPassword: event.target.value }))} required minLength={12} />
+            Name
+            <input value={values.name} onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))} required />
           </label>
-        )}
-        <label>
-          Role
-          <select value={values.role} disabled={isSelf} onChange={(event) => setValues((current) => ({ ...current, role: event.target.value, assignedPlants: scopedRoles.has(event.target.value) ? current.assignedPlants : [] }))}>
-            {roles.map((role) => <option key={role} value={role}>{role}</option>)}
-          </select>
-        </label>
-        {showPlants && (
           <label>
-            Assigned plants
-            <select multiple value={values.assignedPlants} onChange={(event) => setValues((current) => ({ ...current, assignedPlants: Array.from(event.target.selectedOptions, (option) => option.value) }))}>
-              {plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.code} - {plant.name}</option>)}
+            Email
+            <input type="email" value={values.email} onChange={(event) => setValues((current) => ({ ...current, email: event.target.value }))} required />
+          </label>
+          {!isEdit && (
+            <label>
+              Temporary password
+              <input type="password" value={values.temporaryPassword} onChange={(event) => setValues((current) => ({ ...current, temporaryPassword: event.target.value }))} required minLength={12} />
+            </label>
+          )}
+          <label>
+            Role
+            <select value={values.role} disabled={isSelf} onChange={(event) => setValues((current) => ({ ...current, role: event.target.value, assignedPlants: scopedRoles.has(event.target.value) ? current.assignedPlants : [] }))}>
+              {roles.map((role) => <option key={role} value={role}>{role}</option>)}
             </select>
           </label>
-        )}
-        <label className="check-row">
-          <input
-            type="checkbox"
-            checked={Boolean(values.isActive)}
-            disabled={isSelf}
-            onChange={(event) => setValues((current) => ({ ...current, isActive: event.target.checked }))}
-          />
-          Active
-        </label>
-        {error && <p className="form-error">{error}</p>}
+          {showPlants && (
+            <label>
+              Assigned plants
+              <select multiple value={values.assignedPlants} onChange={(event) => setValues((current) => ({ ...current, assignedPlants: Array.from(event.target.selectedOptions, (option) => option.value) }))}>
+                {plants.map((plant) => <option key={plant.id} value={plant.id}>{plant.code} - {plant.name}</option>)}
+              </select>
+            </label>
+          )}
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={Boolean(values.isActive)}
+              disabled={isSelf}
+              onChange={(event) => setValues((current) => ({ ...current, isActive: event.target.checked }))}
+            />
+            Active
+          </label>
+          {error && <p className="form-error modal-error">{error}</p>}
+        </div>
         <div className="modal-actions">
           <button type="button" onClick={onClose}>Cancel</button>
           <button type="submit">Save</button>

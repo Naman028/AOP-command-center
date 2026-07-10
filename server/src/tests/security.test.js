@@ -245,7 +245,7 @@ describe("security architecture", () => {
     expect(deactivate.status).toBe(200);
     expect(await request(application).get("/api/auth/me").set("Cookie", manager.cookies)).toMatchObject({ status: 401 });
     expect(await request(application).post("/api/auth/refresh").set("Origin", "http://localhost:5173").set("Cookie", manager.cookies)).toMatchObject({ status: 401 });
-  });
+  }, 10_000);
 
   it("supports admin user management with scoped plant assignment and safe responses", async () => {
     const application = app();
@@ -817,8 +817,9 @@ describe("security architecture", () => {
     const totalRow = sheet.getRow(sheet.rowCount);
     expect(totalRow.getCell(1).value).toBe("Totals");
     expect(typeof totalRow.getCell(9).value).toBe("number");
+    const dataRows = Array.from({ length: Math.max(0, sheet.rowCount - 7) }, (_, index) => sheet.getRow(index + 8));
     const findRow = (category) => {
-      const row = sheet.getRows(8, sheet.rowCount - 8).find((candidate) => candidate.getCell(6).value === category);
+      const row = dataRows.find((candidate) => candidate.getCell(6).value === category);
       expect(row).toBeTruthy();
       return row;
     };

@@ -21,6 +21,7 @@ test.afterEach(async () => {
 test("admin user lifecycle and forced password change", async ({ page }) => {
   const prefix = e2ePrefix();
   await login(page, "admin@aop.local", "Password123!");
+  await createMasterDataFromUi(page, prefix);
   await page.goto("/admin/users");
   await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
 
@@ -53,42 +54,46 @@ test("admin user lifecycle and forced password change", async ({ page }) => {
 test("operational target actual report and export flow", async ({ page }) => {
   const prefix = e2ePrefix();
   await login(page, "admin@aop.local", "Password123!");
-  const csrf = await csrfToken(page);
   const refs = await loadRefs(page);
-  const category = `${prefix}-OPS`;
+  const code = shortCode(prefix);
+  const categories = {
+    TURNOVER: `${code}-TURNOVER`,
+    EXPENSE: `${code}-EXPENSE`,
+    CONSUMPTION: `${code}-CONSUMPTION`,
+    EARNINGS: `${code}-EARNINGS`
+  };
 
-  await api(page, "POST", "/targets", csrf, {
-    plant: refs.plantA.id,
-    financialYear: refs.year.id,
-    month: 12,
-    metricType: "TURNOVER",
-    category,
-    plannedValue: 123,
-    unit: "USD",
-    notes: "E2E target"
-  });
-  await api(page, "POST", "/actuals", csrf, {
-    plant: refs.plantA.id,
-    financialYear: refs.year.id,
-    month: 12,
-    metricType: "TURNOVER",
-    category,
-    actualValue: 111,
-    unit: "USD",
-    source: "MANUAL",
-    notes: "E2E actual"
-  });
+  await createTargetFromUi(page, "/planning/turnover", "TURNOVER", categories.TURNOVER, "123", "USD");
+  await createTargetFromUi(page, "/planning/expenses", "EXPENSE", categories.EXPENSE, "45", "USD");
+  await createTargetFromUi(page, "/planning/consumption", "CONSUMPTION", categories.CONSUMPTION, "7", "EA", "MAT-A");
+  await createTargetFromUi(page, "/planning/earnings", "EARNINGS", categories.EARNINGS, "30", "USD");
+
+  await createActualFromUi(page, "Turnover", "TURNOVER", categories.TURNOVER, "111", "USD");
+  await createActualFromUi(page, "Expense", "EXPENSE", categories.EXPENSE, "40", "USD");
+  await createActualFromUi(page, "Consumption", "CONSUMPTION", categories.CONSUMPTION, "5", "EA", "MAT-A");
+  await createActualFromUi(page, "Earnings", "EARNINGS", categories.EARNINGS, "33", "USD");
 
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page.getByText("TURNOVER").first()).toBeVisible();
+  await expect(page.getByText("EXPENSE").first()).toBeVisible();
+  await expect(page.getByText("CONSUMPTION").first()).toBeVisible();
+  await expect(page.getByText("EARNINGS").first()).toBeVisible();
 
   await page.goto("/reports/target-data");
   await page.getByLabel("Metric").selectOption("TURNOVER");
   await page.getByLabel("Month").selectOption("12");
-  await expect(page.getByText(category)).toBeVisible();
+  await expect(page.getByText(categories.TURNOVER)).toBeVisible();
   await expect(page.getByRole("cell", { name: "123" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "111" })).toBeVisible();
+
+  await page.goto("/reports/summary");
+  await expect(page.getByRole("heading", { name: "Summary Report" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "TURNOVER" }).first()).toBeVisible();
+
+  await page.goto("/reports/plant-performance");
+  await expect(page.getByRole("heading", { name: "Plant Performance" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "PLANT-A" }).first()).toBeVisible();
 
   const exportResponse = await page.request.post(`${apiBase}/reports/target-data/export`, {
     headers: {
@@ -236,6 +241,88 @@ async function changePassword(page, currentPassword, newPassword) {
   await expect(page).toHaveURL(/\/login/);
 }
 
+async function createMasterDataFromUi(page, prefix) {
+  const code = shortCode(prefix);
+  await page.goto("/master-data/plants");
+  await expect(page.getByRole("heading", { name: "Plants" })).toBeVisible();
+  await page.getByRole("button", { name: "Create" }).click();
+  let dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill(`${prefix} Plant`);
+  await dialog.getByLabel("Code").fill(`${code}-P`);
+  await dialog.getByLabel("Location").fill("E2E");
+  await dialog.getByLabel("Business Unit").fill("Operations");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+  await expectRecord(page, `/master-data/plants?search=${encodeURIComponent(`${code}-P`)}`, "rows");
+
+  await page.goto("/master-data/materials");
+  await expect(page.getByRole("heading", { name: "Materials" })).toBeVisible();
+  await page.getByRole("button", { name: "Create" }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Name").fill(`${prefix} Material`);
+  await dialog.getByLabel("Code").fill(`${code}-M`);
+  await dialog.getByLabel("Category").fill("E2E");
+  await dialog.getByLabel("Unit").fill("EA");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+  await expectRecord(page, `/master-data/materials?search=${encodeURIComponent(`${code}-M`)}`, "rows");
+
+  await page.goto("/master-data/financial-years");
+  await expect(page.getByRole("heading", { name: "Financial Years" })).toBeVisible();
+  await page.getByRole("button", { name: "Create" }).click();
+  dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Label").fill(`${code}-FY`);
+  await dialog.getByLabel("Start").fill("2027-01-01");
+  await dialog.getByLabel("End").fill("2027-12-31");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+  await expectRecord(page, `/master-data/financial-years?search=${encodeURIComponent(`${code}-FY`)}`, "rows");
+}
+
+async function createTargetFromUi(page, route, metricType, category, value, unit, materialCode) {
+  await page.goto(route);
+  await expect(page.locator("main").getByRole("heading")).toBeVisible();
+  await page.getByRole("button", { name: "Create" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Plant").selectOption({ label: "PLANT-A" });
+  await dialog.getByLabel("Financial Year").selectOption({ label: "2026" });
+  await dialog.getByLabel("Month").selectOption("12");
+  await dialog.getByLabel("Category").fill(category);
+  if (materialCode) await dialog.getByLabel("Material").selectOption({ label: materialCode });
+  await dialog.getByLabel("Planned Value").fill(value);
+  await dialog.getByLabel("Unit").fill(unit);
+  await dialog.getByLabel("Notes").fill("E2E target from UI");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+  await expectRecord(page, `/targets?metricType=${metricType}&category=${encodeURIComponent(category)}`, "rows");
+}
+
+async function createActualFromUi(page, tabName, metricType, category, value, unit, materialCode) {
+  await page.goto("/actuals/manual-entry");
+  await expect(page.getByRole("heading", { name: "Manual Actual Entry" })).toBeVisible();
+  await page.getByRole("button", { name: tabName, exact: true }).click();
+  await page.getByRole("button", { name: "Create" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Plant").selectOption({ label: "PLANT-A" });
+  await dialog.getByLabel("Financial Year").selectOption({ label: "2026" });
+  await dialog.getByLabel("Month").selectOption("12");
+  await dialog.getByLabel("Category").fill(category);
+  if (materialCode) await dialog.getByLabel("Material").selectOption({ label: materialCode });
+  await dialog.getByLabel("Actual Value").fill(value);
+  await dialog.getByLabel("Unit").fill(unit);
+  await dialog.getByLabel("Notes").fill("E2E actual from UI");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog).toBeHidden();
+  await expectRecord(page, `/actuals?metricType=${metricType}&category=${encodeURIComponent(category)}`, "rows");
+}
+
+async function expectRecord(page, pathName, collectionKey) {
+  const response = await page.request.get(`${apiBase}${pathName}`);
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+  expect(body[collectionKey].length).toBeGreaterThan(0);
+}
+
 async function csrfToken(page) {
   const cookies = await page.context().cookies(apiBase);
   const csrf = cookies.find((cookie) => cookie.name === "csrfToken");
@@ -274,4 +361,8 @@ async function writeImportFile(row) {
 
 function e2ePrefix() {
   return `E2E-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`.toUpperCase();
+}
+
+function shortCode(prefix) {
+  return prefix.replace(/[^A-Z0-9]/g, "").slice(-8);
 }

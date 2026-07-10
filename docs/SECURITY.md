@@ -205,6 +205,14 @@ GitHub:
 - CI runs lint, tests, client build, Chromium E2E, security checks, and workspace audit.
 - CI does not run `mongo:gate`; the Atlas transaction gate is opt-in because it requires an external database URI.
 
+Release QA:
+
+- `npm run qa:release` verifies local release readiness and writes reports under `reports/`.
+- `npm run qa:secrets` scans tracked files only and reports file path plus reason, never the secret value.
+- `npm run qa:licenses` records installed package licenses and flags AGPL, GPL, LGPL, UNKNOWN, UNLICENSED, and custom/non-standard license strings for review.
+- `npm run qa:unused` runs Knip in report-only mode. Unused-code findings must be reviewed before deletion.
+- `npm run qa:security-checklist` checks static evidence for authentication, authorization, CSRF/origin, plant scope, audit, import, export, CORS, rate-limit, and error-handling controls.
+
 E2E security:
 
 - Browser E2E runs only with `NODE_ENV=test`.

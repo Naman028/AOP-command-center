@@ -19,11 +19,17 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "mongo:gate": "node scripts/mongodb-persistence-gate.js",
-    "security:check": "npm audit --workspaces --audit-level=high"
+    "security:check": "npm audit --workspaces --audit-level=high",
+    "qa:release": "node scripts/qa-release.js",
+    "qa:licenses": "node scripts/qa-licenses.js",
+    "qa:unused": "node scripts/qa-unused.js",
+    "qa:secrets": "node scripts/qa-secrets.js",
+    "qa:security-checklist": "node scripts/qa-security-checklist.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
-    "concurrently": "^9.0.0"
+    "concurrently": "^9.0.0",
+    "knip": "^6.25.0"
   },
   "overrides": {
     "uuid": "^11.1.1"

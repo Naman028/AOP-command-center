@@ -19,6 +19,12 @@ Browser coverage is intentionally narrow.
 - Firefox, WebKit, mobile-device emulation, and visual regression testing are not included yet.
 - Accessibility has not been certified by a full manual audit or assistive-technology pass.
 
+Cleanup remains review-first.
+
+- `npm run qa:unused` generates cleanup candidates but does not remove files, folders, exports, or dependencies.
+- License findings are marked for review; they are not legal advice.
+- Generated reports under `reports/` are local QA artifacts and may need regeneration after dependency or code changes.
+
 Operational hardening still required before public production use.
 
 - MFA for Admin accounts is documented as future work.

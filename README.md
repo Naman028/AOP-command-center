@@ -53,6 +53,7 @@ React must never connect directly to MongoDB. Database credentials and private s
 - [Test Plan](docs/TEST_PLAN.md)
 - [Known Limitations](docs/KNOWN_LIMITATIONS.md)
 - [Project Progress](docs/PROJECT_PROGRESS.md)
+- [Final Release Review](docs/FINAL_RELEASE_REVIEW.md)
 
 ## Development
 
@@ -84,6 +85,14 @@ npm run test:e2e
 npm run security:check
 npm audit --workspaces
 ```
+
+Run the local release QA gate:
+
+```sh
+npm run qa:release
+```
+
+The release gate writes review artifacts under `reports/`, including license, unused-code, secret-scan, security-checklist, and release-readiness reports. Unused-code findings are review-only; files are not deleted automatically.
 
 Run the Atlas transaction gate only when `server/.env` contains a safe Atlas `MONGODB_URI` for verification:
 

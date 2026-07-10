@@ -218,6 +218,35 @@ Completed:
 
 - Admin-only user-management APIs.
 - Admin-only `/admin/users` page with frontend guards and backend `USERS_MANAGE` permission checks.
+
+## Phase 10.2 - Final QA Audit Tooling
+
+Status: In progress.
+
+Scope:
+
+- Keep the app as a local/demo release candidate.
+- Add release QA scripts without adding product features.
+- Generate cleanup and risk reports before deleting any code or folders.
+- Keep Atlas `mongo:gate` separate and opt-in.
+
+Planned artifacts:
+
+- `reports/release-readiness-report.md`
+- `reports/licenses-full.json`
+- `reports/licenses-summary.md`
+- `reports/unused-code-report.md`
+- `reports/secret-scan-report.md`
+- `reports/security-checklist.md`
+- `docs/FINAL_RELEASE_REVIEW.md`
+
+Release gate:
+
+- Checks git status and whitespace.
+- Verifies `server/.env` is ignored and untracked.
+- Scans tracked files for secret patterns without printing secret values.
+- Runs lint, unit/integration tests, client build, Chromium E2E, security audit, strict workspace audit, license report, unused-code report, and security checklist.
+- Treats unused-code findings as review-only.
 - User creation for `ADMIN`, `MANAGER`, `TEAM_LEAD`, and `STAFF`.
 - Plant assignment for Team Leads and Staff.
 - User activation and deactivation.

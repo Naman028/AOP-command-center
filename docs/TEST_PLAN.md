@@ -80,8 +80,10 @@ Safeguards:
 
 Release-hardening flows:
 
+- Admin creates master data from the UI: plant, material, and financial year.
 - Admin user creation, forced password change, direct URL redirect, and Team Lead Plant A scope.
-- Planning, manual actual entry, dashboard, target-data report, and secure report export.
+- Planning and manual actual entry create Turnover, Expense, Consumption, and Earnings records from the UI.
+- Dashboard, target-data report, summary report, plant-performance report, and secure report export.
 - Role authorization regression for Admin, Manager, Team Lead, and Staff.
 - Team Lead Plant B manipulation returns no Plant B data.
 - Session revocation after plant-scope change.
@@ -92,4 +94,27 @@ Commands:
 ```sh
 npm run test:e2e
 npm run test:e2e:ui
+```
+
+## Phase 10.2 Release QA Gate
+
+`npm run qa:release` runs the local release-candidate gate and writes reports under `reports/`.
+
+Required-failure conditions:
+
+- committed secrets or tracked `.env` files
+- whitespace errors
+- lint, unit/integration, client build, or Playwright E2E failure
+- dependency audit vulnerabilities from `npm audit --workspaces`
+- unsafe security-checklist failure
+
+Review-only conditions:
+
+- Knip unused files, dependencies, devDependencies, exports, or missing dependencies
+- LGPL/GPL/custom/unknown license findings, unless later policy decides to block them
+
+Atlas transaction testing remains outside normal QA:
+
+```sh
+npm run mongo:gate
 ```

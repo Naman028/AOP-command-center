@@ -21,13 +21,51 @@ const sections = [
 ];
 
 if (parsed) {
-  addJsonSection("Unused files", parsed.files);
-  addJsonSection("Unused dependencies", parsed.dependencies);
-  addJsonSection("Unused devDependencies", parsed.devDependencies);
-  addJsonSection("Unused exports", parsed.exports);
-  addJsonSection("Missing dependencies", parsed.missing);
+  const normalized = normalizeKnip(parsed);
+  addJsonSection("Unused files", normalized.files);
+  addJsonSection("Unused dependencies", normalized.dependencies);
+  addJsonSection("Unused devDependencies", normalized.devDependencies);
+  addJsonSection("Unused exports", normalized.exports);
+  addJsonSection("Missing dependencies", normalized.missing);
+  addJsonSection("Unlisted dependencies", normalized.unlisted);
+  addJsonSection("Unresolved imports", normalized.unresolved);
 } else {
   sections.push("## Raw Output", "", "```text", `${result.stdout}\n${result.stderr}`.trim() || "No output.", "```");
+}
+
+function normalizeKnip(parsed) {
+  if (!Array.isArray(parsed.issues)) {
+    return {
+      files: parsed.files,
+      dependencies: parsed.dependencies,
+      devDependencies: parsed.devDependencies,
+      exports: parsed.exports,
+      missing: parsed.missing,
+      unlisted: parsed.unlisted,
+      unresolved: parsed.unresolved
+    };
+  }
+
+  const normalized = {
+    files: [],
+    dependencies: [],
+    devDependencies: [],
+    exports: [],
+    missing: [],
+    unlisted: [],
+    unresolved: []
+  };
+
+  for (const issue of parsed.issues) {
+    for (const item of issue.files ?? []) normalized.files.push(`${issue.file}: ${item.name}`);
+    for (const item of issue.dependencies ?? []) normalized.dependencies.push(`${issue.file}: ${item.name}`);
+    for (const item of issue.devDependencies ?? []) normalized.devDependencies.push(`${issue.file}: ${item.name}`);
+    for (const item of issue.exports ?? []) normalized.exports.push(`${issue.file}: ${item.name}`);
+    for (const item of issue.unlisted ?? []) normalized.unlisted.push(`${issue.file}: ${item.name}`);
+    for (const item of issue.unresolved ?? []) normalized.unresolved.push(`${issue.file}: ${item.name}`);
+  }
+
+  return normalized;
 }
 
 writeReport("unused-code-report.md", sections.join("\n"));
